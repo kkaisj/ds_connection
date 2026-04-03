@@ -1,0 +1,43 @@
+version: 1
+rules:
+  - id: routing-new-feature
+    when: "任务是新增功能或重大改动"
+    read:
+      - "AGENTS.md"
+      - "docs/architecture.md"
+      - "docs/module-boundaries.md"
+      - ".harness/plan.md"
+      - ".harness/sprint-contract.md"
+
+  - id: routing-api-change
+    when: "任务涉及接口变更"
+    read:
+      - "AGENTS.md"
+      - "docs/api/openapi.yaml"
+      - "docs/conventions.md"
+    must_update:
+      - "docs/api/openapi.yaml"
+
+  - id: routing-data-change
+    when: "任务涉及数据模型、索引或持久化"
+    read:
+      - "AGENTS.md"
+      - "docs/data-model/schema.sql"
+      - "docs/module-boundaries.md"
+    must_update:
+      - "docs/data-model/schema.sql"
+
+  - id: routing-release-evaluation
+    when: "任务是提测、发布或验收"
+    read:
+      - ".harness/evaluation.md"
+      - ".harness/handoff.md"
+    output:
+      - "评分结果"
+      - "风险项"
+      - "是否允许发布"
+
+guardrails:
+  - "不要一次读取全部文档，按任务类型最小化加载。"
+  - "若代码和文档冲突，先修正文档并记录原因。"
+  - "未经评审不得修改重试/调度默认策略。"

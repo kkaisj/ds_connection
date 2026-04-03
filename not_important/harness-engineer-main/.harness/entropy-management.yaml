@@ -1,0 +1,77 @@
+# 熵管理配置
+
+# 定义定期扫描任务，防止代码库衰退。
+# 这些任务可以由 CI/CD 定时触发，或由专门的 Agent 执行。
+
+scans:
+  documentation-drift:
+    description: "检测代码变更是否已更新对应文档"
+    frequency: "weekly"
+    checks:
+      - name: "AGENTS.md 与实际结构一致"
+        action: "对比 AGENTS.md 中的模块列表与实际目录结构"
+      - name: "API 文档与代码一致"
+        action: "对比 docs/architecture.md 中的 API 描述与实际 Controller 定义"
+      - name: "README 信息准确"
+        action: "验证 README 中的启动步骤仍然有效"
+
+  architecture-consistency:
+    description: "验证代码是否遵循架构约束"
+    frequency: "on-commit"
+    checks:
+      - name: "分层依赖"
+        action: "运行 ArchUnit / eslint-plugin-import 检查"
+      - name: "循环依赖"
+        action: "运行依赖循环检测"
+      - name: "模块边界"
+        action: "验证 internal/ 目录中的类未被外部引用"
+
+  dead-code:
+    description: "标记和清理无用代码"
+    frequency: "monthly"
+    checks:
+      - name: "未使用的导入"
+        action: "运行 Linter 的 no-unused-imports 规则"
+      - name: "未使用的函数/方法"
+        action: "使用覆盖率报告识别从未调用的代码"
+      - name: "过期的 TODO"
+        action: "扫描超过 30 天的 TODO 注释"
+
+  dependency-health:
+    description: "审查依赖状态"
+    frequency: "monthly"
+    checks:
+      - name: "过期依赖"
+        action: "运行 npm outdated / ./gradlew dependencyUpdates"
+      - name: "安全漏洞"
+        action: "运行 npm audit / OWASP dependency-check"
+      - name: "未使用的依赖"
+        action: "运行 depcheck / gradle-lint-plugin"
+
+  naming-consistency:
+    description: "确保命名一致性"
+    frequency: "on-commit"
+    checks:
+      - name: "文件命名"
+        action: "验证文件名符合 conventions.md 中的规范"
+      - name: "数据库命名"
+        action: "验证表名、列名符合 snake_case 规范"
+
+# Agent 执行指令
+agent-instructions: |
+  你是 Entropy Manager Agent。你的任务是扫描代码库，发现和修复以下类型的问题：
+  
+  1. 文档与代码不一致
+  2. 违反架构规则的代码
+  3. 无用的死代码
+  4. 过期的依赖和 TODO
+  5. 命名不一致
+  
+  对于每个发现的问题，输出：
+  - 问题类型
+  - 位置（文件 + 行号）
+  - 问题描述
+  - 建议修复方案
+  - 优先级（High / Medium / Low）
+  
+  将结果保存到 `.harness/reports/entropy-scan-[日期].md`

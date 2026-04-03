@@ -1,0 +1,38 @@
+# Context Rules（上下文注入规则）
+
+# 本文件定义了在不同阶段向 Agent 注入的上下文规则。
+# Agent 编排器应按阶段加载对应的文件。
+
+stages:
+  planning:
+    description: "规划阶段 - Agent 需要理解项目全貌"
+    inject:
+      - AGENTS.md
+      - docs/architecture.md
+      - docs/module-boundaries.md
+      - docs/conventions.md
+      - HARNESS_ENGINEERING_TEMPLATE.md
+
+  coding:
+    description: "编码阶段 - Agent 需要理解约束和规范"
+    inject:
+      - AGENTS.md
+      - docs/conventions.md
+      - docs/module-boundaries.md
+      # 动态注入当前 Sprint Contract
+      - .harness/artifacts/sprint-contract-current.md
+
+  evaluating:
+    description: "评估阶段 - Agent 需要理解评判标准"
+    inject:
+      - .harness/prompts/evaluator.md
+      - .harness/criteria/evaluation-criteria.md
+      # 动态注入当前 Sprint Contract
+      - .harness/artifacts/sprint-contract-current.md
+
+  entropy-scan:
+    description: "熵管理阶段 - 扫描代码库一致性"
+    inject:
+      - AGENTS.md
+      - docs/architecture.md
+      - docs/conventions.md

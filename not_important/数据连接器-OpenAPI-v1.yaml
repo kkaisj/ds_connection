@@ -1,0 +1,673 @@
+openapi: 3.0.3
+info:
+  title: Data Connector API
+  version: 1.0.0
+  description: 电商数据连接器（DC）API v1 草案
+servers:
+  - url: https://api.example.com
+    description: Production
+  - url: http://localhost:8000
+    description: Local
+tags:
+  - name: Apps
+  - name: Accounts
+  - name: Tasks
+  - name: TaskRuns
+paths:
+  /api/v1/apps:
+    get:
+      tags: [Apps]
+      summary: 获取连接应用列表
+      parameters:
+        - in: query
+          name: platform
+          schema:
+            type: string
+          description: 平台编码，如 taobao/jd/pdd/douyin
+        - in: query
+          name: keyword
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseAppsPage"
+  /api/v1/apps/{app_id}:
+    get:
+      tags: [Apps]
+      summary: 获取连接应用详情
+      parameters:
+        - in: path
+          name: app_id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseApp"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/accounts:
+    get:
+      tags: [Accounts]
+      summary: 获取店铺账号列表
+      parameters:
+        - in: query
+          name: platform
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [active, inactive, disabled]
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseAccountsPage"
+    post:
+      tags: [Accounts]
+      summary: 新增店铺账号
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseAccount"
+        "400":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/v1/accounts/{id}:
+    patch:
+      tags: [Accounts]
+      summary: 更新店铺账号
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseAccount"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/tasks:
+    get:
+      tags: [Tasks]
+      summary: 获取任务列表
+      parameters:
+        - in: query
+          name: app_id
+          schema:
+            type: integer
+        - in: query
+          name: account_id
+          schema:
+            type: integer
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [enabled, paused]
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTasksPage"
+    post:
+      tags: [Tasks]
+      summary: 创建任务实例
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTask"
+        "400":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/v1/tasks/{id}/run:
+    post:
+      tags: [Tasks]
+      summary: 手动触发任务执行
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTaskRunTrigger"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/v1/tasks/{id}/retry:
+    post:
+      tags: [Tasks]
+      summary: 对最后一次失败任务重试
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTaskRunTrigger"
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/task-runs:
+    get:
+      tags: [TaskRuns]
+      summary: 获取执行记录列表
+      parameters:
+        - in: query
+          name: task_id
+          schema:
+            type: integer
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, running, success, failed, cancelled]
+        - in: query
+          name: started_at_from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: started_at_to
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTaskRunsPage"
+  /api/v1/task-runs/{run_id}/logs:
+    get:
+      tags: [TaskRuns]
+      summary: 获取步骤日志
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseRunLogs"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+components:
+  schemas:
+    ApiError:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 40001
+        message:
+          type: string
+          example: Validation failed
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+      required: [code, message]
+
+    ApiResponseBase:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 0
+        message:
+          type: string
+          example: success
+      required: [code, message]
+
+    Platform:
+      type: object
+      properties:
+        code:
+          type: string
+          example: taobao
+        name:
+          type: string
+          example: 淘宝天猫
+      required: [code, name]
+
+    ConnectorApp:
+      type: object
+      properties:
+        id:
+          type: integer
+        platform:
+          $ref: "#/components/schemas/Platform"
+        name:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive]
+        description:
+          type: string
+      required: [id, platform, name, version, status]
+
+    Account:
+      type: object
+      properties:
+        id:
+          type: integer
+        platform:
+          type: string
+        shop_name:
+          type: string
+        username_masked:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, disabled]
+        created_at:
+          type: string
+          format: date-time
+      required: [id, platform, shop_name, username_masked, status, created_at]
+
+    CreateAccountRequest:
+      type: object
+      properties:
+        platform:
+          type: string
+        shop_name:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+        extra:
+          type: object
+          additionalProperties: true
+      required: [platform, shop_name, username, password]
+
+    UpdateAccountRequest:
+      type: object
+      properties:
+        shop_name:
+          type: string
+        password:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, disabled]
+        extra:
+          type: object
+          additionalProperties: true
+
+    Task:
+      type: object
+      properties:
+        id:
+          type: integer
+        app_id:
+          type: integer
+        account_id:
+          type: integer
+        name:
+          type: string
+        cron_expr:
+          type: string
+          example: "0 8 * * *"
+        status:
+          type: string
+          enum: [enabled, paused]
+        storage_config_id:
+          type: integer
+        notification_config_id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+      required: [id, app_id, account_id, name, cron_expr, status, created_at]
+
+    CreateTaskRequest:
+      type: object
+      properties:
+        app_id:
+          type: integer
+        account_id:
+          type: integer
+        name:
+          type: string
+        cron_expr:
+          type: string
+        params:
+          type: object
+          additionalProperties: true
+        storage_config_id:
+          type: integer
+        notification_config_id:
+          type: integer
+      required:
+        [app_id, account_id, name, cron_expr, storage_config_id, notification_config_id]
+
+    TaskRun:
+      type: object
+      properties:
+        id:
+          type: integer
+        task_id:
+          type: integer
+        trigger_type:
+          type: string
+          enum: [scheduler, manual, retry]
+        status:
+          type: string
+          enum: [pending, running, success, failed, cancelled]
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        ended_at:
+          type: string
+          format: date-time
+          nullable: true
+        duration_ms:
+          type: integer
+          nullable: true
+        error_code:
+          type: string
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+      required: [id, task_id, trigger_type, status]
+
+    TaskRunTriggerResult:
+      type: object
+      properties:
+        run_id:
+          type: integer
+        task_id:
+          type: integer
+        queued:
+          type: boolean
+      required: [run_id, task_id, queued]
+
+    RunLog:
+      type: object
+      properties:
+        step:
+          type: string
+        level:
+          type: string
+          enum: [INFO, WARN, ERROR]
+        message:
+          type: string
+        ts:
+          type: string
+          format: date-time
+      required: [step, level, message, ts]
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+      required: [page, page_size, total]
+
+    ApiResponseApp:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ConnectorApp"
+
+    ApiResponseAppsPage:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ConnectorApp"
+                pagination:
+                  $ref: "#/components/schemas/Pagination"
+              required: [items, pagination]
+
+    ApiResponseAccount:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Account"
+
+    ApiResponseAccountsPage:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Account"
+                pagination:
+                  $ref: "#/components/schemas/Pagination"
+              required: [items, pagination]
+
+    ApiResponseTask:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Task"
+
+    ApiResponseTasksPage:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Task"
+                pagination:
+                  $ref: "#/components/schemas/Pagination"
+              required: [items, pagination]
+
+    ApiResponseTaskRunTrigger:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/TaskRunTriggerResult"
+
+    ApiResponseTaskRunsPage:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/TaskRun"
+                pagination:
+                  $ref: "#/components/schemas/Pagination"
+              required: [items, pagination]
+
+    ApiResponseRunLogs:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                run_id:
+                  type: integer
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/RunLog"
+              required: [run_id, items]
