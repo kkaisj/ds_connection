@@ -1,19 +1,18 @@
 # CLAUDE.md
 
-## Project
+本项目已迁移到 Codex 工作流。
 
-`ds_connection`
+当前项目级规则以 `AGENTS.md` 为主入口，详细规范以下列文档为准：
 
-## spec
-1. 全部用中文回复
-2. 不能写兼容性代码，除非我主动要求
-3. 写代码前先描述方案，等我批准再动手
-4. 需求不明确时，先提问澄清再写代码
-5. 写完代码后，列出可能出现的问题并建议测试相应用例来覆盖这些问题
-6. 一项任务需要修改超过3个文件，先停下来，拆分成更小的任务
-7. 发现bug时，先编写一个能够重现该bug的测试，然后不断修复它，直到测试通过为止
-8. 每次被纠正之后，就在 CLAUDE.md 文件中添加一条新规则，下次不要再犯相同的错误
-9. 每次回复时都叫我 【困困】
-10. SQLAlchemy 查询中不要使用 `.nullslast()` / `.nullsfirst()`，MySQL 不支持该语法；MySQL 的 `ORDER BY col DESC` 默认已将 NULL 排在最后
-11. ORM 模型中二进制字段使用 `LargeBinary` 而非 `VarBinary`（SQLAlchemy 没有 VarBinary）
-12. 所有代码必须写好注释：文件顶部说明用途，关键函数/组件写中文注释说明职责和逻辑
+1. `AGENTS.md`
+2. `docs/architecture.md`
+3. `docs/module-boundaries.md`
+4. `docs/conventions.md`
+5. `docs/api/openapi.yaml`
+6. `docs/data-model/schema.sql`
+
+说明：
+1. 包括“每次回复时称呼用户为【困困】”在内的协作偏好，已迁移到 `AGENTS.md`。
+2. 包括“所有代码必须写好注释：文件顶部说明用途，关键函数/组件写中文注释说明职责和逻辑”在内的编码要求，已迁移到 `AGENTS.md`。
+
+如果后续需要新增稳定规则，请优先更新 `AGENTS.md` 或对应 `docs/*` 文档，而不是继续在本文件累积。
