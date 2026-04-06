@@ -1,0 +1,99 @@
+/* ── DC Design Tokens ── */
+:root {
+  /* Cream Editorial Palette */
+  --bg-base: #FDFBF7;
+  --bg-subtle: #F5F1EB;
+  --bg-card: #FFFFFF;
+  --bg-hover: #FAF7F2;
+
+  --text-primary: #2D2A26;
+  --text-secondary: #6B6560;
+  --text-tertiary: #A39E98;
+  --text-inverse: #FDFBF7;
+
+  --accent-copper: #C8956C;
+  --accent-copper-light: #E8D5C0;
+  --accent-copper-bg: #FDF6EF;
+  --accent-green: #4A7C6F;
+  --accent-green-light: #D4E8E2;
+  --accent-green-bg: #F0F8F5;
+  --accent-red: #C75C4A;
+  --accent-red-light: #F0C9C2;
+  --accent-red-bg: #FDF2F0;
+  --accent-blue: #5B7FA6;
+  --accent-blue-light: #C8D9E8;
+  --accent-blue-bg: #F0F5FA;
+  --accent-amber: #B8933E;
+  --accent-amber-light: #EDE0B8;
+  --accent-amber-bg: #FBF7EC;
+
+  --border: #E8E3DC;
+  --border-light: #F0ECE6;
+
+  --shadow-sm: 0 1px 3px rgba(45,42,38,0.04), 0 1px 2px rgba(45,42,38,0.02);
+  --shadow-md: 0 4px 16px rgba(45,42,38,0.06), 0 2px 6px rgba(45,42,38,0.03);
+  --shadow-lg: 0 12px 40px rgba(45,42,38,0.08), 0 4px 12px rgba(45,42,38,0.04);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 100px;
+
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body: 'DM Sans', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --sidebar-w: 240px;
+  --header-h: 64px;
+}
+
+/* ── Reset ── */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html { font-size: 15px; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* Noise overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  opacity: 0.018;
+  pointer-events: none;
+  z-index: 9999;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
