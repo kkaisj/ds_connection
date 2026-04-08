@@ -14,7 +14,7 @@
 3. 编码与测试规范：`docs/conventions.md`
 4. API 契约：`docs/api/openapi.yaml`
 5. 数据库与索引：`docs/data-model/schema.sql`
-6. 项目进度：`PROGRESS.md`
+6. 项目进度：`PROGRESS.json`
 7. Harness 运行文件：`.harness/`
 
 ## Collaboration Preferences
@@ -31,8 +31,9 @@
 2. 开发实现：读 `docs/architecture.md` + `docs/module-boundaries.md` + `docs/conventions.md`。
 3. 接口改动：必须同步 `docs/api/openapi.yaml`。
 4. 数据模型改动：必须同步 `docs/data-model/schema.sql`。
-5. 提测与验收：按 `.harness/evaluation.md` 打分并记录结论。
-6. 会话切换：更新 `.harness/handoff.md`，确保可接续。
+5. 项目进度更新：统一维护 `PROGRESS.json`，不再维护 `PROGRESS.md`。
+6. 提测与验收：按 `.harness/evaluation.md` 打分并记录结论。
+7. 会话切换：更新 `.harness/handoff.md`，确保可接续。
 
 ## Hard Constraints
 1. 分层方向只能是 `presentation -> application -> domain`，`infrastructure` 由 application 调用。
@@ -41,6 +42,7 @@
 4. 任何“任务执行链路”改动必须补充集成测试。
 5. 任何“告警策略”改动必须验证去重和频控。
 6. 不主动编写兼容性代码，除非需求明确要求兼容旧逻辑或旧环境。
+7. 一次只提问一个问题。根据我的回答，继续追问。直到你有95%的信心理解我的真实需求和目标。然后才给出方案
 
 ## Backend Rules
 1. SQLAlchemy 查询中不要使用 `.nullslast()` 或 `.nullsfirst()`，项目默认兼容 MySQL 排序行为。

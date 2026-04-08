@@ -316,6 +316,7 @@ const systemNav = [
   flex: 1;
   margin-left: var(--sidebar-w);
   min-height: 100vh;
+  width: calc(100vw - var(--sidebar-w));
 }
 
 .header {
@@ -373,6 +374,7 @@ const systemNav = [
 
 .page-container {
   padding: 28px 32px 48px;
-  max-width: 1360px;
+  width: 100%;
+  max-width: none;
 }
 </style>

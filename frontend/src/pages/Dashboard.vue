@@ -499,7 +499,7 @@ onUnmounted(() => {
 /* ── Stats Row ── */
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 18px;
   margin-bottom: 24px;
 }
@@ -598,7 +598,7 @@ onUnmounted(() => {
 /* ── Charts ── */
 .charts-row {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
   gap: 18px;
   margin-bottom: 24px;
 }
@@ -744,7 +744,7 @@ tbody tr:last-child td { border-bottom: none; }
 /* ── Bottom Row ── */
 .bottom-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 18px;
 }
 
@@ -878,8 +878,12 @@ tbody tr:last-child td { border-bottom: none; }
 
 /* ── Responsive ── */
 @media (max-width: 1200px) {
-  .stats-row { grid-template-columns: repeat(2, 1fr); }
+  .stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .charts-row { grid-template-columns: 1fr; }
   .bottom-row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  .stats-row { grid-template-columns: 1fr; }
 }
 </style>
