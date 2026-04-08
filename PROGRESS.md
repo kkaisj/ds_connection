@@ -128,7 +128,8 @@ mysql -u root -p dc_connection < backend/scripts/add_captcha.sql
 ```bash
 cd backend
 uv sync
-uv run uvicorn dc_backend.main:app --reload --port 8000
+uv run uvicorn main:app --app-dir src --reload --port 8000
+
 ```
 
 ### 前端启动

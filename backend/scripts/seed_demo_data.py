@@ -1,12 +1,12 @@
-# 数据库种子数据脚本
+﻿# 数据库种子数据脚本
 # 用法: cd backend && python -m scripts.seed_demo_data
 
 import asyncio
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dc_backend.config.database import async_session_factory, engine, Base
-from dc_backend.infrastructure.persistence.models.models import (
+from config.database import async_session_factory, engine, Base
+from infrastructure.persistence.models.models import (
     Platform,
     ConnectorApp,
     ShopAccount,
@@ -145,3 +145,4 @@ async def seed() -> None:
 
 if __name__ == "__main__":
     asyncio.run(seed())
+
