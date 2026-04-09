@@ -1,21 +1,60 @@
 ﻿"""
-适配器注册表
-通过 adapter_key 查找并实例化对应的 DrissionPage 适配器。
-新增平台适配器时，只需在 _REGISTRY 中注册即可。
+连接器注册表
+通过 adapter_key 查找并实例化对应的 DrissionPage 连接器实现。
+
+说明：
+- 对外提供“可上架应用模板”元数据（中文名称、描述、默认版本）
+- 对内保留 adapter_key 和类路径映射，用于实际执行
 """
 
 from infrastructure.connectors.base.adapter import BaseAdapter
 
 
-# 适配器注册表：adapter_key → 适配器类的导入路径
-# 使用延迟导入避免启动时加载所有适配器模块
-_REGISTRY: dict[str, str] = {
-    "taobao.order_sync": "infrastructure.connectors.taobao.order_sync.TaobaoOrderSyncAdapter",
-    "taobao.logistics_track": "infrastructure.connectors.taobao.logistics_track.TaobaoLogisticsTrackAdapter",
-    "jd.product_stock_sync": "infrastructure.connectors.jd.product_stock_sync.JdProductStockSyncAdapter",
-    "jd.refund_sync": "infrastructure.connectors.jd.refund_sync.JdRefundSyncAdapter",
-    "pdd.review_scrape": "infrastructure.connectors.pdd.review_scrape.PddReviewScrapeAdapter",
-    "douyin.traffic_analytics": "infrastructure.connectors.douyin.traffic_analytics.DouyinTrafficAnalyticsAdapter",
+# 连接器注册表：adapter_key -> 元数据
+# class_path 为运行时导入路径；display_name/description/default_version 用于上架页面展示
+_REGISTRY: dict[str, dict[str, str]] = {
+    "taobao.order_sync": {
+        "class_path": "infrastructure.connectors.taobao.order_sync.TaobaoOrderSyncAdapter",
+        "platform_code": "taobao",
+        "display_name": "订单数据采集",
+        "description": "采集淘宝天猫订单数据",
+        "default_version": "1.0.0",
+    },
+    "taobao.logistics_track": {
+        "class_path": "infrastructure.connectors.taobao.logistics_track.TaobaoLogisticsTrackAdapter",
+        "platform_code": "taobao",
+        "display_name": "物流轨迹更新",
+        "description": "更新淘宝天猫物流轨迹信息",
+        "default_version": "1.0.0",
+    },
+    "jd.product_stock_sync": {
+        "class_path": "infrastructure.connectors.jd.product_stock_sync.JdProductStockSyncAdapter",
+        "platform_code": "jd",
+        "display_name": "商品库存同步",
+        "description": "同步京东商品库存",
+        "default_version": "1.0.0",
+    },
+    "jd.refund_sync": {
+        "class_path": "infrastructure.connectors.jd.refund_sync.JdRefundSyncAdapter",
+        "platform_code": "jd",
+        "display_name": "退款数据同步",
+        "description": "同步京东退款数据",
+        "default_version": "1.0.0",
+    },
+    "pdd.review_scrape": {
+        "class_path": "infrastructure.connectors.pdd.review_scrape.PddReviewScrapeAdapter",
+        "platform_code": "pdd",
+        "display_name": "评价数据抓取",
+        "description": "抓取拼多多商品评价数据",
+        "default_version": "1.0.0",
+    },
+    "douyin.traffic_analytics": {
+        "class_path": "infrastructure.connectors.douyin.traffic_analytics.DouyinTrafficAnalyticsAdapter",
+        "platform_code": "douyin",
+        "display_name": "流量数据采集",
+        "description": "采集抖音流量分析数据",
+        "default_version": "1.0.0",
+    },
 }
 
 
@@ -28,14 +67,16 @@ def get_adapter(adapter_key: str) -> BaseAdapter:
         ValueError: adapter_key 未注册
         ImportError: 适配器模块不存在
     """
-    class_path = _REGISTRY.get(adapter_key)
-    if not class_path:
+    meta = _REGISTRY.get(adapter_key)
+    if not meta:
         raise ValueError(f"未注册的适配器: {adapter_key}")
 
-    # 延迟导入：拆分模块路径和类名
+    class_path = meta["class_path"]
+
     module_path, class_name = class_path.rsplit(".", 1)
 
     import importlib
+
     module = importlib.import_module(module_path)
     adapter_cls = getattr(module, class_name)
     return adapter_cls()
@@ -45,3 +86,26 @@ def list_registered_adapters() -> list[str]:
     """返回所有已注册的适配器 key 列表。"""
     return list(_REGISTRY.keys())
 
+
+def get_adapter_meta(adapter_key: str) -> dict[str, str] | None:
+    """返回指定适配器元数据，不存在则返回 None。"""
+    return _REGISTRY.get(adapter_key)
+
+
+def list_registered_adapter_templates() -> list[dict[str, str]]:
+    """
+    返回可用于上架页面的应用模板列表。
+    每个模板包含中文应用名、平台、描述、默认版本和 adapter_key。
+    """
+    items: list[dict[str, str]] = []
+    for adapter_key, meta in _REGISTRY.items():
+        items.append(
+            {
+                "adapter_key": adapter_key,
+                "platform_code": meta["platform_code"],
+                "display_name": meta["display_name"],
+                "description": meta["description"],
+                "default_version": meta["default_version"],
+            }
+        )
+    return items

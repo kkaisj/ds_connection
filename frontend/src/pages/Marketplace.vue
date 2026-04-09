@@ -14,15 +14,14 @@
           @click="activePlatform = ''"
         >全部</button>
         <button
-          v-for="p in platforms"
+          v-for="p in filterPlatforms"
           :key="p.code"
           class="filter-tab"
           :class="{ active: activePlatform === p.code }"
           @click="activePlatform = p.code"
         >{{ p.name }}</button>
       </div>
-      <div class="search-box">
-        <input
+      <div class="search-box">        <input
           v-model="keyword"
           type="text"
           placeholder="搜索应用名称..."
@@ -59,6 +58,63 @@
     </div>
 
     <div v-if="apps.length === 0 && !loading" class="empty-state">暂无可用连接应用</div>
+
+    <!-- ════════ 上架应用弹窗 ════════ -->
+    <div v-if="publishVisible" class="modal-overlay" @click.self="publishVisible = false">
+      <div class="publish-card">
+        <div class="publish-header">
+          <h3 class="wizard-title">添加应用</h3>
+          <button class="publish-close" @click="publishVisible = false">×</button>
+        </div>
+        <div class="wizard-body">
+          <div class="form-group">
+            <label class="form-label"><span class="required-mark">*</span> 一级平台</label>
+            <DcSelect
+              v-model="publishPrimaryCode"
+              class="form-select"
+              :options="primaryPlatformOptions"
+              placeholder="请选择一级平台"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label"><span class="required-mark">*</span> 二级平台</label>
+            <DcSelect
+              v-model="publishSecondaryCode"
+              class="form-select"
+              :options="secondaryPlatformOptions"
+              placeholder="请选择二级平台"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label"><span class="required-mark">*</span> 应用选择</label>
+            <DcSelect
+              v-model="publishForm.adapter_key"
+              class="form-select"
+              :options="publishTemplateOptions"
+              placeholder="请选择应用"
+              @change="onSelectTemplate"
+            />
+            <span class="form-hint">这里展示全部已开发应用模板，请按平台对应关系选择</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label"><span class="required-mark">*</span> 版本号</label>
+            <input v-model="publishForm.version" class="form-input" placeholder="1.0.0" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">应用描述</label>
+            <textarea
+              v-model="publishForm.description"
+              class="form-input form-textarea"
+              placeholder="描述应用用途与采集范围"
+            />
+          </div>
+        </div>
+        <div class="wizard-footer">
+          <button class="modal-btn cancel" @click="publishVisible = false">取消</button>
+          <button class="modal-btn confirm" @click="submitPublish">确认上架</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ════════ 发起连接 - 步骤引导弹窗 ════════ -->
     <div v-if="wizardVisible" class="modal-overlay" @click.self="wizardVisible = false">
@@ -161,14 +217,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import axios from 'axios'
+import DcSelect from '@/components/DcSelect.vue'
 
 const message = useMessage()
 
 /* ── 类型 ── */
-interface PlatformItem { id: number; code: string; name: string }
+interface PlatformItem {
+  id: number
+  code: string
+  name: string
+  parent_id: number | null
+  level: 1 | 2
+}
 interface AppItem {
   id: number; name: string; description: string | null; version: string;
   status: string; platform_code: string; platform_name: string
@@ -178,6 +241,16 @@ interface AccountItem {
   health_score: number; platform_code: string; platform_name: string
 }
 interface StorageItem { id: number; type: string; name: string; status: string }
+interface AdapterItem {
+  adapter_key: string
+  platform_code: string
+  display_name: string
+  description: string
+  default_version: string
+  is_listed: boolean
+  listed_apps: { id: number; name: string; status: string }[]
+}
+interface SelectOption { value: string; label: string }
 
 /* ── 列表状态 ── */
 const platforms = ref<PlatformItem[]>([])
@@ -185,6 +258,17 @@ const apps = ref<AppItem[]>([])
 const activePlatform = ref('')
 const keyword = ref('')
 const loading = ref(false)
+const availableAdapters = ref<AdapterItem[]>([])
+const publishTemplateOptions = ref<SelectOption[]>([])
+const publishPrimaryCode = ref('')
+const publishSecondaryCode = ref('')
+const publishVisible = ref(false)
+const publishForm = ref({
+  name: '',
+  adapter_key: '',
+  version: '1.0.0',
+  description: '',
+})
 
 /* ── 向导状态 ── */
 const wizardVisible = ref(false)
@@ -208,6 +292,34 @@ function getScoreClass(score: number) { return score >= 70 ? 'score-good' : scor
 const typeLabels: Record<string, string> = { mysql: 'MySQL 数据库', feishu_bitable: '飞书多维表', dingtalk_sheet: '钉钉表格' }
 function typeLabel(t: string) { return typeLabels[t] || t }
 
+const platformByCode = computed(() => {
+  const map = new Map<string, PlatformItem>()
+  platforms.value.forEach((p) => map.set(p.code, p))
+  return map
+})
+
+const primaryPlatforms = computed(() => platforms.value.filter((p) => p.parent_id === null))
+
+const secondaryCandidates = computed(() => {
+  const selectedPrimary = primaryPlatforms.value.find((p) => p.code === publishPrimaryCode.value)
+  if (!selectedPrimary) return []
+  const children = platforms.value.filter((p) => p.parent_id === selectedPrimary.id)
+  return children.length > 0 ? children : [selectedPrimary]
+})
+
+const primaryPlatformOptions = computed<SelectOption[]>(() =>
+  primaryPlatforms.value.map((p) => ({ value: p.code, label: p.name })),
+)
+
+const secondaryPlatformOptions = computed<SelectOption[]>(() =>
+  secondaryCandidates.value.map((p) => ({ value: p.code, label: p.name })),
+)
+
+const filterPlatforms = computed(() => {
+  const parentIds = new Set<number>(platforms.value.filter((p) => p.parent_id !== null).map((p) => p.parent_id as number))
+  return platforms.value.filter((p) => p.level === 2 || !parentIds.has(p.id))
+})
+
 /* ── 数据加载 ── */
 async function loadPlatforms() {
   const res = await axios.get('/api/v1/apps/platforms')
@@ -224,9 +336,99 @@ async function loadApps() {
   loading.value = false
 }
 
+async function loadAvailableAdapters() {
+  const res = await axios.get('/api/v1/apps/available-adapters')
+  availableAdapters.value = res.data.data
+}
+
+function openPublishModal() {
+  const firstPrimary = primaryPlatforms.value[0]
+  const initialPrimaryCode = firstPrimary?.code ?? ''
+  const initialSecondary = (() => {
+    const selectedPrimary = primaryPlatforms.value.find((p) => p.code === initialPrimaryCode)
+    if (!selectedPrimary) return ''
+    const children = platforms.value.filter((p) => p.parent_id === selectedPrimary.id)
+    return (children[0] ?? selectedPrimary).code
+  })()
+
+  publishForm.value = {
+    name: '',
+    adapter_key: '',
+    version: '',
+    description: '',
+  }
+  publishPrimaryCode.value = initialPrimaryCode
+  publishSecondaryCode.value = initialSecondary
+  refreshTemplateOptions()
+  publishVisible.value = true
+}
+
+function refreshTemplateOptions() {
+  publishTemplateOptions.value = availableAdapters.value
+    .map((a) => ({
+      value: a.adapter_key,
+      label: `${a.display_name}（${platformByCode.value.get(a.platform_code)?.name || a.platform_code}${a.is_listed ? '，已上架' : ''}）`,
+    }))
+}
+
+function onSelectTemplate(adapterKey: string | number) {
+  const key = String(adapterKey)
+  const tpl = availableAdapters.value.find((a) => a.adapter_key === key)
+  if (!tpl) return
+  publishForm.value.adapter_key = tpl.adapter_key
+  publishForm.value.name = tpl.display_name
+  publishForm.value.description = tpl.description
+  publishForm.value.version = tpl.default_version
+}
+
+async function submitPublish() {
+  if (!publishPrimaryCode.value) { message.warning('请选择一级平台'); return }
+  if (!publishSecondaryCode.value) { message.warning('请选择二级平台'); return }
+  if (!publishForm.value.adapter_key.trim()) { message.warning('请选择应用'); return }
+  const tpl = availableAdapters.value.find((a) => a.adapter_key === publishForm.value.adapter_key)
+  if (!tpl) { message.warning('请选择有效应用模板'); return }
+  if (tpl.is_listed) { message.warning('该应用模板已上架'); return }
+  if (tpl.platform_code !== publishSecondaryCode.value) {
+    const rightName = platformByCode.value.get(tpl.platform_code)?.name || tpl.platform_code
+    message.warning(`应用与平台不匹配，请选择 ${rightName}`)
+    return
+  }
+  if (!publishForm.value.name.trim()) { message.warning('应用名称为空，请重新选择模板'); return }
+  if (!publishForm.value.version.trim()) { message.warning('请输入版本号'); return }
+
+  await axios.post('/api/v1/apps', {
+    platform_code: publishSecondaryCode.value,
+    name: publishForm.value.name.trim(),
+    adapter_key: publishForm.value.adapter_key.trim() || null,
+    version: publishForm.value.version.trim(),
+    description: publishForm.value.description.trim() || null,
+    status: 'active',
+  })
+
+  publishVisible.value = false
+  message.success('上架成功')
+  await Promise.all([loadApps(), loadAvailableAdapters()])
+}
+
 let debounceTimer: ReturnType<typeof setTimeout>
 function debouncedLoad() { clearTimeout(debounceTimer); debounceTimer = setTimeout(loadApps, 300) }
 watch(activePlatform, loadApps)
+watch(
+  publishPrimaryCode,
+  () => {
+    const firstSecondary = secondaryCandidates.value[0]
+    publishSecondaryCode.value = firstSecondary?.code ?? ''
+  },
+)
+watch(
+  publishSecondaryCode,
+  () => {
+    publishForm.value.adapter_key = ''
+    publishForm.value.name = ''
+    publishForm.value.version = ''
+    publishForm.value.description = ''
+  },
+)
 
 /* ── 发起连接向导 ── */
 async function startConnect(app: AppItem) {
@@ -276,7 +478,10 @@ async function submitWizard() {
   wizardVisible.value = false
 }
 
-onMounted(() => { loadPlatforms(); loadApps() })
+onMounted(async () => {
+  await Promise.all([loadPlatforms(), loadAvailableAdapters()])
+  await loadApps()
+})
 </script>
 
 <style scoped>
@@ -294,6 +499,22 @@ onMounted(() => { loadPlatforms(); loadApps() })
   padding: 8px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border);
   background: var(--bg-card); font-size: 13px; font-family: var(--font-body); color: var(--text-primary);
   width: 220px; outline: none; transition: border-color 0.2s;
+}
+.search-box { display: flex; align-items: center; gap: 10px; }
+.publish-btn {
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-copper-light);
+  background: var(--accent-copper-bg);
+  color: var(--accent-copper);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.publish-btn:hover {
+  border-color: var(--accent-copper);
+  box-shadow: 0 2px 8px rgba(200,149,108,0.2);
 }
 .search-input:focus { border-color: var(--accent-copper); }
 .search-input::placeholder { color: var(--text-tertiary); }
@@ -344,6 +565,43 @@ onMounted(() => { loadPlatforms(); loadApps() })
   width: 520px; max-width: 92vw; box-shadow: var(--shadow-lg);
   animation: fadeUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); overflow: hidden;
 }
+.publish-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  width: 520px;
+  max-width: 92vw;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.publish-header {
+  padding: 16px 28px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.publish-close {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 16px;
+}
+.publish-close:hover {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+.required-mark {
+  color: var(--accent-red);
+  margin-right: 2px;
+}
+.form-textarea {
+  min-height: 88px;
+  resize: vertical;
+}
 
 /* 步骤指示器 */
 .wizard-steps {
@@ -367,8 +625,8 @@ onMounted(() => { loadPlatforms(); loadApps() })
 .step-label { white-space: nowrap; }
 
 /* 向导内容 */
-.wizard-body { padding: 24px 28px; min-height: 200px; }
-.wizard-title { font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--text-primary); margin-bottom: 18px; }
+.wizard-body { padding: 16px 20px; min-height: 200px; max-height: 62vh; overflow-y: auto; }
+.wizard-title { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
 .wizard-hint { font-size: 12.5px; color: var(--text-tertiary); line-height: 1.6; margin-top: 12px; }
 
 /* 确认应用卡片 */
@@ -407,6 +665,14 @@ onMounted(() => { loadPlatforms(); loadApps() })
   width: 100%; padding: 9px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border);
   background: var(--bg-base); font-size: 13px; font-family: var(--font-body); color: var(--text-primary); outline: none;
 }
+.form-select {
+  width: 100%;
+  display: block;
+}
+:deep(.form-select .dc-select) {
+  width: 100%;
+  display: flex;
+}
 .form-input:focus { border-color: var(--accent-copper); }
 .form-hint { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; display: block; }
 
@@ -424,3 +690,4 @@ onMounted(() => { loadPlatforms(); loadApps() })
 .modal-btn.confirm { background: linear-gradient(135deg, var(--accent-copper), #B88560); border: none; color: var(--text-inverse); }
 .modal-btn.confirm:hover { box-shadow: 0 2px 8px rgba(200,149,108,0.3); }
 </style>
+

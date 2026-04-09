@@ -31,6 +31,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppsResponse"
+    post:
+      tags: [apps]
+      summary: 上架连接应用
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAppRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppResponse"
 
   /api/v1/apps/{app_id}:
     get:
@@ -55,6 +71,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/apps/available-adapters:
+    get:
+      tags: [apps]
+      summary: 查询已开发适配器列表（含是否已上架）
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailableAdaptersResponse"
+
+  /api/v1/apps/platforms:
+    get:
+      tags: [apps]
+      summary: 查询平台列表（含一级/二级层级）
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformsResponse"
 
   /api/v1/accounts:
     get:
@@ -240,20 +279,45 @@ components:
 
     App:
       type: object
-      required: [id, platform, name, version, status]
+      required: [id, name, version, status, platform_code, platform_name]
       properties:
         id:
           type: integer
-        platform:
-          type: string
         name:
           type: string
+        description:
+          type: string
+          nullable: true
         version:
           type: string
         status:
           type: string
           enum: [active, inactive]
-
+        platform_code:
+          type: string
+        platform_name:
+          type: string
+        is_published:
+          type: boolean
+        avg_runtime_minutes:
+          type: integer
+        ops_owner:
+          type: string
+        need_extra_params:
+          type: boolean
+        recommendation:
+          type: integer
+        platform_preview_url:
+          type: string
+          nullable: true
+        data_table:
+          type: string
+        collect_cycle:
+          type: string
+        metrics:
+          type: string
+        usage_guide:
+          type: string
     Account:
       type: object
       required: [id, platform, shop_name, username_masked, status]
@@ -357,6 +421,136 @@ components:
         notification_config_id:
           type: integer
 
+    CreateAppRequest:
+      type: object
+      required: [platform_code, name, adapter_key, version, is_published, avg_runtime_minutes, ops_owner, need_extra_params, recommendation, data_table, collect_cycle, metrics, usage_guide]
+      properties:
+        platform_code:
+          type: string
+          example: taobao
+        name:
+          type: string
+          example: 订单数据采集
+        adapter_key:
+          type: string
+          example: taobao.order_sync
+        version:
+          type: string
+          example: 1.0.0
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive]
+        is_published:
+          type: boolean
+        avg_runtime_minutes:
+          type: integer
+          example: 6
+        ops_owner:
+          type: string
+        need_extra_params:
+          type: boolean
+        recommendation:
+          type: integer
+          enum: [1, 2, 3, 4, 5]
+        platform_preview_url:
+          type: string
+          nullable: true
+        data_table:
+          type: string
+        collect_cycle:
+          type: string
+        metrics:
+          type: string
+        usage_guide:
+          type: string
+    UpdateAppRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive]
+        is_published:
+          type: boolean
+        avg_runtime_minutes:
+          type: integer
+        ops_owner:
+          type: string
+        need_extra_params:
+          type: boolean
+        recommendation:
+          type: integer
+          enum: [1, 2, 3, 4, 5]
+        platform_preview_url:
+          type: string
+          nullable: true
+        data_table:
+          type: string
+        collect_cycle:
+          type: string
+        metrics:
+          type: string
+        usage_guide:
+          type: string
+
+    AdapterItem:
+      type: object
+      required: [adapter_key, platform_code, display_name, description, default_version, is_listed, listed_apps]
+      properties:
+        adapter_key:
+          type: string
+          example: taobao.order_sync
+        platform_code:
+          type: string
+          example: taobao
+        display_name:
+          type: string
+          example: 订单数据采集
+        description:
+          type: string
+          example: 采集淘宝天猫订单数据
+        default_version:
+          type: string
+          example: 1.0.0
+        is_listed:
+          type: boolean
+        listed_apps:
+          type: array
+          items:
+            type: object
+            required: [id, name, status]
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              status:
+                type: string
+                enum: [active, inactive]
+
+    PlatformItem:
+      type: object
+      required: [id, code, name, parent_id, level]
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        name:
+          type: string
+        parent_id:
+          type: integer
+          nullable: true
+        level:
+          type: integer
+          enum: [1, 2]
     AppResponse:
       allOf:
         - $ref: "#/components/schemas/BaseResponse"
@@ -462,3 +656,23 @@ components:
                       ts:
                         type: string
                         format: date-time
+
+    AvailableAdaptersResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/AdapterItem"
+    PlatformsResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/PlatformItem"
+

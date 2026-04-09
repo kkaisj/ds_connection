@@ -1,159 +1,190 @@
 {
-  "project": "DC 数据连接器",
-  "last_updated": "2026-04-08",
-  "completed": [
-    {
-      "step": 1,
-      "title": "项目基础骨架初始化",
-      "date": "2026-04-06",
-      "items": [
-        "完成前后端分离目录结构：backend、frontend、docs",
-        "后端完成 pyproject.toml、uv.lock、alembic.ini、基础工程搭建",
-        "前端完成 Vite + Vue 3 + TypeScript 初始化",
-        "补充项目根目录 .gitignore"
-      ]
-    },
-    {
-      "step": 2,
-      "title": "后端基础能力搭建",
-      "date": "2026-04-06",
-      "items": [
-        "FastAPI 应用入口完成",
-        "完成 config、common、presentation、application、infrastructure 模块搭建",
-        "注册 7 组业务 API 路由：dashboard/apps/tasks/accounts/task-runs/storages/notifications",
-        "整理 OpenAPI 文档：docs/api/openapi.yaml"
-      ]
-    },
-    {
-      "step": 3,
-      "title": "数据库与模型设计落地",
-      "date": "2026-04-06",
-      "items": [
-        "完成 Alembic 迁移目录与初始化配置",
-        "提供初始化脚本：backend/scripts/init.sql",
-        "提供种子脚本：backend/scripts/seed_demo_data.py",
-        "补充增量 SQL：add_soft_delete.sql/add_adapter_key.sql/add_captcha.sql/alter_storage_type.sql",
-        "ORM 模型覆盖核心对象"
-      ]
-    },
-    {
-      "step": 4,
-      "title": "后端核心业务能力",
-      "date": "2026-04-06",
-      "items": [
-        "Dashboard 统计、趋势、平台分布、最近执行、账号健康、待办接口",
-        "任务管理支持：列表/新建/编辑/软删除/手动执行/重试",
-        "账号管理支持：列表/新建/编辑/软删除/验证码配置",
-        "存储管理支持：列表/新建/编辑/软删除",
-        "通知配置支持：列表/新建/编辑/软删除",
-        "执行记录支持：列表查询与日志查看",
-        "连接市场支持：应用列表、平台列表、应用详情、软删除"
-      ]
-    },
-    {
-      "step": 5,
-      "title": "适配器与任务执行链路",
-      "date": "2026-04-06",
-      "items": [
-        "加入 adapter_key 字段映射具体采集适配器",
-        "实现任务执行服务 task_executor",
-        "实现 DrissionPage 适配器注册与查找机制",
-        "落地 6 个适配器示例：taobao.order_sync/taobao.logistics_track/jd.product_stock_sync/jd.refund_sync/pdd.review_scrape/douyin.traffic_analytics"
-      ]
-    },
-    {
-      "step": 6,
-      "title": "数据一致性与删除策略",
-      "date": "2026-04-06",
-      "items": [
-        "核心表加入 is_deleted 软删除字段",
-        "业务查询统一过滤 is_deleted = false",
-        "删除接口统一改为软删除"
-      ]
-    },
-    {
-      "step": 7,
-      "title": "验证码转发配置",
-      "date": "2026-04-06",
-      "items": [
-        "账号模型支持 captcha_method/captcha_config/captcha_enabled",
-        "前后端打通验证码配置录入与展示",
-        "支持方式：none/sms_forward/email_forward/email_auth_code/manual"
-      ]
-    },
-    {
-      "step": 8,
-      "title": "前端业务页面与交互",
-      "date": "2026-04-06",
-      "items": [
-        "完成 AppLayout 主布局",
-        "完成 8 个页面：Dashboard/Marketplace/Tasks/Accounts/Executions/Storages/Notifications/Settings",
-        "实现基础路由与导航",
-        "补充通用组件 DcConfirm、DcSelect",
-        "接入全局消息提示与对话框",
-        "任务列表与执行记录具备分页",
-        "账号、存储、通知页面具备弹窗表单交互"
-      ]
-    },
-    {
-      "step": 9,
-      "title": "设计与文档补充",
-      "date": "2026-04-06",
-      "items": [
-        "完成 docs/architecture.md",
-        "完成 docs/module-boundaries.md",
-        "完成 docs/conventions.md",
-        "完成 docs/ui-design.md",
-        "补充产品方案文档中的后端目录结构说明",
-        "保留设计原型 dashboard-prototype.html"
-      ]
-    },
-    {
-      "step": 10,
-      "title": "近期结构与运行修正",
-      "date": "2026-04-08",
-      "items": [
-        "后端目录扁平化：移除 backend/src/dc_backend，统一为 backend/src/*",
-        "修正后端启动入口为 main:app（--app-dir src）",
-        "新增 backend/scripts/init_db.py，支持按配置初始化数据库",
-        "修复数据库连接串特殊字符编码问题（密码 URL 编码）",
-        "更新 Alembic 连接来源，与 settings 保持一致",
-        "优化 Dashboard 布局，去除固定最大宽度，实现自适应撑满"
-      ]
-    }
-  ],
-  "startup": {
-    "backend": [
-      "cd backend",
-      "uv sync",
-      "uv run python -m scripts.init_db",
-      "uv run uvicorn main:app --app-dir src --reload --port 8000"
-    ],
-    "frontend": [
-      "cd frontend",
-      "npm install",
-      "npm run dev"
-    ],
-    "proxy": "前端通过 Vite 代理 /api 到 http://localhost:8000"
-  },
-  "todo": {
-    "high_priority": [
-      "打通连接应用 -> 绑定店铺 -> 配置任务 -> 设置存储 -> 启用执行完整闭环",
-      "将任务执行链路与真实 DrissionPage 浏览器自动化流程完全接通",
-      "完成通知发送通道的真实 webhook 集成，而不只是配置管理",
-      "补齐系统设置页真实后端接口与持久化"
-    ],
-    "medium_priority": [
-      "增加更多平台适配器与适配器回归测试",
-      "完善任务调度、失败重试、幂等控制与告警策略",
-      "补充更完整的 API 文档与示例请求",
-      "梳理数据库迁移版本与初始化脚本关系，统一演进方式"
-    ],
-    "quality": [
-      "补充后端单元测试与集成测试",
-      "补充前端关键页面测试",
-      "增加 Playwright E2E 主流程测试",
-      "完善日志、追踪、异常监控与运行健康检查"
-    ]
-  }
+    "project":  "DC 数据连接器",
+    "last_updated":  "2026-04-09",
+    "completed":  [
+                      {
+                          "step":  1,
+                          "title":  "项目基础骨架初始化",
+                          "date":  "2026-04-06",
+                          "items":  [
+                                        "完成前后端分离目录结构：backend、frontend、docs",
+                                        "后端完成 pyproject.toml、uv.lock、alembic.ini、基础工程搭建",
+                                        "前端完成 Vite + Vue 3 + TypeScript 初始化",
+                                        "补充项目根目录 .gitignore"
+                                    ]
+                      },
+                      {
+                          "step":  2,
+                          "title":  "后端基础能力搭建",
+                          "date":  "2026-04-06",
+                          "items":  [
+                                        "FastAPI 应用入口完成",
+                                        "完成 config、common、presentation、application、infrastructure 模块搭建",
+                                        "注册 7 组业务 API 路由：dashboard/apps/tasks/accounts/task-runs/storages/notifications",
+                                        "整理 OpenAPI 文档：docs/api/openapi.yaml"
+                                    ]
+                      },
+                      {
+                          "step":  3,
+                          "title":  "数据库与模型设计落地",
+                          "date":  "2026-04-06",
+                          "items":  [
+                                        "完成 Alembic 迁移目录与初始化配置",
+                                        "提供初始化脚本：backend/scripts/init.sql",
+                                        "提供种子脚本：backend/scripts/seed_demo_data.py",
+                                        "补充增量 SQL：add_soft_delete.sql/add_adapter_key.sql/add_captcha.sql/alter_storage_type.sql",
+                                        "ORM 模型覆盖核心对象"
+                                    ]
+                      },
+                      {
+                          "step":  4,
+                          "title":  "后端核心业务能力",
+                          "date":  "2026-04-06",
+                          "items":  [
+                                        "Dashboard 统计、趋势、平台分布、最近执行、账号健康、待办接口",
+                                        "任务管理支持：列表/新建/编辑/软删除/手动执行/重试",
+                                        "账号管理支持：列表/新建/编辑/软删除/验证码配置",
+                                        "存储管理支持：列表/新建/编辑/软删除",
+                                        "通知配置支持：列表/新建/编辑/软删除",
+                                        "执行记录支持：列表查询与日志查看",
+                                        "连接市场支持：应用列表、平台列表、应用详情、软删除"
+                                    ]
+                      },
+                      {
+                          "step":  5,
+                          "title":  "适配器与任务执行链路",
+                          "date":  "2026-04-06",
+                          "items":  [
+                                        "加入 adapter_key 字段映射具体采集适配器",
+                                        "实现任务执行服务 task_executor",
+                                        "实现 DrissionPage 适配器注册与查找机制",
+                                        "落地 6 个适配器示例：taobao.order_sync/taobao.logistics_track/jd.product_stock_sync/jd.refund_sync/pdd.review_scrape/douyin.traffic_analytics"
+                                    ]
+                      },
+                      {
+                          "step":  6,
+                          "title":  "数据一致性与删除策略",
+                          "date":  "2026-04-06",
+                          "items":  [
+                                        "核心表加入 is_deleted 软删除字段",
+                                        "业务查询统一过滤 is_deleted = false",
+                                        "删除接口统一改为软删除"
+                                    ]
+                      },
+                      {
+                          "step":  7,
+                          "title":  "验证码转发配置",
+                          "date":  "2026-04-06",
+                          "items":  [
+                                        "账号模型支持 captcha_method/captcha_config/captcha_enabled",
+                                        "前后端打通验证码配置录入与展示",
+                                        "支持方式：none/sms_forward/email_forward/email_auth_code/manual"
+                                    ]
+                      },
+                      {
+                          "step":  8,
+                          "title":  "前端业务页面与交互",
+                          "date":  "2026-04-06",
+                          "items":  [
+                                        "完成 AppLayout 主布局",
+                                        "完成 8 个页面：Dashboard/Marketplace/Tasks/Accounts/Executions/Storages/Notifications/Settings",
+                                        "实现基础路由与导航",
+                                        "补充通用组件 DcConfirm、DcSelect",
+                                        "接入全局消息提示与对话框",
+                                        "任务列表与执行记录具备分页",
+                                        "账号、存储、通知页面具备弹窗表单交互"
+                                    ]
+                      },
+                      {
+                          "step":  9,
+                          "title":  "设计与文档补充",
+                          "date":  "2026-04-06",
+                          "items":  [
+                                        "完成 docs/architecture.md",
+                                        "完成 docs/module-boundaries.md",
+                                        "完成 docs/conventions.md",
+                                        "完成 docs/ui-design.md",
+                                        "补充产品方案文档中的后端目录结构说明",
+                                        "保留设计原型 dashboard-prototype.html"
+                                    ]
+                      },
+                      {
+                          "step":  10,
+                          "title":  "近期结构与运行修正",
+                          "date":  "2026-04-08",
+                          "items":  [
+                                        "后端目录扁平化：移除 backend/src/dc_backend，统一为 backend/src/*",
+                                        "修正后端启动入口为 main:app（--app-dir src）",
+                                        "新增 backend/scripts/init_db.py，支持按配置初始化数据库",
+                                        "修复数据库连接串特殊字符编码问题（密码 URL 编码）",
+                                        "更新 Alembic 连接来源，与 settings 保持一致",
+                                        "优化 Dashboard 布局，去除固定最大宽度，实现自适应撑满"
+                                    ]
+                      },
+                      {
+                          "step":  11,
+                          "title":  "连接市场上架能力（闭环前置）",
+                          "date":  "2026-04-08",
+                          "items":  [
+                                        "新增连接应用上架接口：POST /api/v1/apps",
+                                        "新增已开发适配器查询接口：GET /api/v1/apps/available-adapters（含已上架状态）",
+                                        "新增前端“上架应用”弹窗，支持平台、应用模板、版本、描述录入",
+                                        "上架时应用名称改为“已开发模板可选”，不再要求手填",
+                                        "上架弹窗下拉改为自定义 DcSelect 组件，提升视觉一致性",
+                                        "上架成功后自动刷新连接市场列表",
+                                        "同步更新 API 契约文档：docs/api/openapi.yaml"
+                                    ]
+                      },
+                      {
+                          "step":  12,
+                          "title":  "应用管理重构与上架信息扩展",
+                          "date":  "2026-04-09",
+                          "items":  [
+                                        "新增“应用管理”页面：承载上架应用、编辑应用、查看已上架列表",
+                                        "连接市场定位调整：仅用于选择已上架应用发起连接",
+                                        "应用上架改为先选应用模板（默认前10并支持输入搜索）",
+                                        "应用信息新增并持久化 10 项字段（是否上架、平均运行时间、运维人员、额外参数、推荐程度、平台预览图、数据表格、采集周期、指标、使用说明）",
+                                        "后端新增应用编辑接口 PATCH /api/v1/apps/{app_id}",
+                                        "应用列表接口支持 include_inactive 参数，应用管理可查看全部上架状态",
+                                        "应用管理弹窗调整：一级/二级平台改为手动选择，保留先选应用并可改平台",
+                                        "应用管理弹窗样式优化：表单与标题字号整体增大，提升可读性",
+                                        "应用管理弹窗修复：应用选择下拉支持点击外部自动关闭",
+                                        "应用管理弹窗优化：一级/二级平台下拉统一替换为 DcSelect 样式"
+                                    ]
+                      }
+                  ],
+    "startup":  {
+                    "backend":  [
+                                    "cd backend",
+                                    "uv sync",
+                                    "uv run python -m scripts.init_db",
+                                    "uv run uvicorn main:app --app-dir src --reload --port 8000"
+                                ],
+                    "frontend":  [
+                                     "cd frontend",
+                                     "npm install",
+                                     "npm run dev"
+                                 ],
+                    "proxy":  "前端通过 Vite 代理 /api 到 http://localhost:8000"
+                },
+    "todo":  {
+                 "high_priority":  [
+                                       "打通连接应用 -\u003e 绑定店铺 -\u003e 配置任务 -\u003e 设置存储 -\u003e 启用执行完整闭环",
+                                       "将任务执行链路与真实 DrissionPage 浏览器自动化流程完全接通",
+                                       "完成通知发送通道的真实 webhook 集成，而不只是配置管理",
+                                       "补齐系统设置页真实后端接口与持久化"
+                                   ],
+                 "medium_priority":  [
+                                         "增加更多平台适配器与适配器回归测试",
+                                         "完善任务调度、失败重试、幂等控制与告警策略",
+                                         "补充更完整的 API 文档与示例请求",
+                                         "梳理数据库迁移版本与初始化脚本关系，统一演进方式"
+                                     ],
+                 "quality":  [
+                                 "补充后端单元测试与集成测试",
+                                 "补充前端关键页面测试",
+                                 "增加 Playwright E2E 主流程测试",
+                                 "完善日志、追踪、异常监控与运行健康检查"
+                             ]
+             }
 }

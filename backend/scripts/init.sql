@@ -173,11 +173,12 @@ CREATE TABLE IF NOT EXISTS audit_log (
 -- ========================================
 
 -- 平台
-INSERT INTO platform (id, code, name) VALUES
-  (1, 'taobao',  '淘宝天猫'),
-  (2, 'jd',      '京东'),
-  (3, 'pdd',     '拼多多'),
-  (4, 'douyin',  '抖音');
+INSERT INTO platform (id, code, name, parent_id) VALUES
+  (10, 'ecommerce', '电商平台', NULL),
+  (1, 'taobao',  '淘宝天猫', 10),
+  (2, 'jd',      '京东', 10),
+  (3, 'pdd',     '拼多多', 10),
+  (4, 'douyin',  '抖音', 10);
 
 -- 连接应用
 INSERT INTO connector_app (id, platform_id, name, adapter_key, version, description) VALUES

@@ -32,12 +32,16 @@ async def seed() -> None:
             print("数据库已有数据，跳过种子。")
             return
 
-        # ── 平台 ──
+        # ── 平台（一级/二级）──
+        primary_platform = Platform(code="ecommerce", name="电商平台")
+        session.add(primary_platform)
+        await session.flush()
+
         platforms = [
-            Platform(code="taobao", name="淘宝天猫"),
-            Platform(code="jd", name="京东"),
-            Platform(code="pdd", name="拼多多"),
-            Platform(code="douyin", name="抖音"),
+            Platform(code="taobao", name="淘宝天猫", parent_id=primary_platform.id),
+            Platform(code="jd", name="京东", parent_id=primary_platform.id),
+            Platform(code="pdd", name="拼多多", parent_id=primary_platform.id),
+            Platform(code="douyin", name="抖音", parent_id=primary_platform.id),
         ]
         session.add_all(platforms)
         await session.flush()

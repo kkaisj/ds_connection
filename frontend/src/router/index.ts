@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 路由配置
  * 所有业务页面挂载在 AppLayout 布局下，共享侧边导航和顶栏。
  */
@@ -23,6 +23,12 @@ const router = createRouter({
           name: 'marketplace',
           component: () => import('@/pages/Marketplace.vue'),
           meta: { title: '连接市场' },
+        },
+        {
+          path: 'app-management',
+          name: 'app-management',
+          component: () => import('@/pages/AppManagement.vue'),
+          meta: { title: '应用管理' },
         },
         {
           path: 'tasks',

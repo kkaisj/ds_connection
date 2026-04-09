@@ -102,6 +102,7 @@ import {
   GlobeOutline,
   BarChartOutline,
   PeopleOutline,
+  AppsOutline,
   DocumentTextOutline,
   ServerOutline,
   NotificationsOutline,
@@ -121,6 +122,7 @@ const overviewNav = [
 
 const businessNav = [
   { path: '/marketplace', label: '连接市场', icon: iconWrap(GlobeOutline) },
+  { path: '/app-management', label: '应用管理', icon: iconWrap(AppsOutline) },
   { path: '/tasks', label: '连接任务', icon: iconWrap(BarChartOutline), badge: 3 },
   { path: '/accounts', label: '账号管理', icon: iconWrap(PeopleOutline) },
 ]
