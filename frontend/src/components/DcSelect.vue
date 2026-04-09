@@ -107,10 +107,14 @@ function updatePosition() {
 /* ── 打开/关闭 ── */
 function toggle() {
   if (props.disabled) return
-  isOpen.value = !isOpen.value
   if (isOpen.value) {
-    nextTick(updatePosition)
+    isOpen.value = false
+    return
   }
+  // 先计算一次位置再打开，避免首次打开时面板短暂错位。
+  updatePosition()
+  isOpen.value = true
+  nextTick(updatePosition)
 }
 
 /* ── 选择 ── */
@@ -131,8 +135,22 @@ function handleClickOutside(e: MouseEvent) {
   }
 }
 
-onMounted(() => document.addEventListener('mousedown', handleClickOutside))
-onUnmounted(() => document.removeEventListener('mousedown', handleClickOutside))
+/** 下拉展开时，窗口尺寸或滚动变化都需要重算定位，避免面板漂移。 */
+function handleViewportChange() {
+  if (!isOpen.value) return
+  updatePosition()
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleClickOutside)
+  window.addEventListener('resize', handleViewportChange)
+  window.addEventListener('scroll', handleViewportChange, true)
+})
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleClickOutside)
+  window.removeEventListener('resize', handleViewportChange)
+  window.removeEventListener('scroll', handleViewportChange, true)
+})
 </script>
 
 <style scoped>
@@ -195,7 +213,7 @@ onUnmounted(() => document.removeEventListener('mousedown', handleClickOutside))
 <!-- 下拉面板用全局样式（因为 Teleport 到 body） -->
 <style>
 .dc-select-dropdown {
-  background: var(--bg-card, #fff);
+  background: var(--bg-base, #FDFBF7);
   border: 1px solid var(--border, #E8E3DC);
   border-radius: 8px;
   box-shadow: 0 8px 30px rgba(45, 42, 38, 0.12), 0 2px 8px rgba(45, 42, 38, 0.06);
@@ -222,26 +240,26 @@ onUnmounted(() => document.removeEventListener('mousedown', handleClickOutside))
 }
 
 .dc-select-option:hover {
-  background: #FAF7F2;
+  background: var(--select-option-hover, #F7F1E8);
 }
 
 .dc-select-option.active {
-  background: #FDF6EF;
+  background: var(--accent-copper-bg, #FDF6EF);
 }
 
 .dc-select-option .option-label {
   font-size: 13px;
-  font-family: 'DM Sans', -apple-system, sans-serif;
-  color: #2D2A26;
+  font-family: var(--font-body, 'DM Sans', -apple-system, sans-serif);
+  color: var(--text-primary, #2D2A26);
 }
 
 .dc-select-option.active .option-label {
-  color: #C8956C;
+  color: var(--accent-copper, #C8956C);
   font-weight: 550;
 }
 
 .dc-select-option .option-check {
-  color: #C8956C;
+  color: var(--accent-copper, #C8956C);
   display: flex;
   align-items: center;
 }

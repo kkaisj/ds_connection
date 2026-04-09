@@ -42,6 +42,16 @@ async def seed() -> None:
             Platform(code="jd", name="京东", parent_id=primary_platform.id),
             Platform(code="pdd", name="拼多多", parent_id=primary_platform.id),
             Platform(code="douyin", name="抖音", parent_id=primary_platform.id),
+            Platform(code="xiaohongshu", name="小红书", parent_id=primary_platform.id),
+            Platform(code="kuaishou", name="快手电商", parent_id=primary_platform.id),
+            Platform(code="weidian", name="微店", parent_id=primary_platform.id),
+            Platform(code="vip", name="唯品会", parent_id=primary_platform.id),
+            Platform(code="suning", name="苏宁易购", parent_id=primary_platform.id),
+            Platform(code="dewu", name="得物", parent_id=primary_platform.id),
+            Platform(code="amazon", name="亚马逊", parent_id=primary_platform.id),
+            Platform(code="shopify", name="Shopify", parent_id=primary_platform.id),
+            Platform(code="lazada", name="Lazada", parent_id=primary_platform.id),
+            Platform(code="shopee", name="Shopee", parent_id=primary_platform.id),
         ]
         session.add_all(platforms)
         await session.flush()

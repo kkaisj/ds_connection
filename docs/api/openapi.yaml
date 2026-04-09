@@ -74,7 +74,7 @@ paths:
   /api/v1/apps/available-adapters:
     get:
       tags: [apps]
-      summary: 查询已开发适配器列表（含是否已上架）
+      summary: 查询已开发适配器列表（含是否已发版）
       responses:
         "200":
           description: ok
@@ -305,8 +305,6 @@ components:
           type: string
         need_extra_params:
           type: boolean
-        recommendation:
-          type: integer
         platform_preview_url:
           type: string
           nullable: true
@@ -423,7 +421,7 @@ components:
 
     CreateAppRequest:
       type: object
-      required: [platform_code, name, adapter_key, version, is_published, avg_runtime_minutes, ops_owner, need_extra_params, recommendation, data_table, collect_cycle, metrics, usage_guide]
+      required: [platform_code, name, adapter_key, version, is_published, avg_runtime_minutes, ops_owner, need_extra_params, data_table, collect_cycle, metrics, usage_guide]
       properties:
         platform_code:
           type: string
@@ -452,9 +450,6 @@ components:
           type: string
         need_extra_params:
           type: boolean
-        recommendation:
-          type: integer
-          enum: [1, 2, 3, 4, 5]
         platform_preview_url:
           type: string
           nullable: true
@@ -485,9 +480,6 @@ components:
           type: string
         need_extra_params:
           type: boolean
-        recommendation:
-          type: integer
-          enum: [1, 2, 3, 4, 5]
         platform_preview_url:
           type: string
           nullable: true
@@ -521,6 +513,7 @@ components:
           example: 1.0.0
         is_listed:
           type: boolean
+          description: 是否已有 active 状态的上架应用
         listed_apps:
           type: array
           items:

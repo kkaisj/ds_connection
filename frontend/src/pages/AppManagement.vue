@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="app-manage-page">
     <div class="toolbar">
       <div class="left">
@@ -16,7 +16,6 @@
             <th>是否上架</th>
             <th>平均运行时间</th>
             <th>运维人员</th>
-            <th>推荐程度</th>
             <th>采集周期</th>
             <th>操作</th>
           </tr>
@@ -28,14 +27,13 @@
             <td>{{ row.is_published ? '是' : '否' }}</td>
             <td>{{ row.avg_runtime_minutes }} m</td>
             <td>{{ row.ops_owner || '--' }}</td>
-            <td>{{ row.recommendation }}</td>
             <td>{{ row.collect_cycle || '--' }}</td>
             <td>
               <button class="link-btn" @click="openEdit(row)">编辑</button>
             </td>
           </tr>
           <tr v-if="filteredApps.length === 0">
-            <td colspan="8" class="empty">暂无应用</td>
+            <td colspan="7" class="empty">暂无应用</td>
           </tr>
         </tbody>
       </table>
@@ -50,29 +48,29 @@
 
         <div class="modal-body">
           <div class="form-grid">
-            <div class="form-group full" ref="appPickerRef">
+            <div class="form-group full">
               <label><span class="required">*</span> 应用选择</label>
-              <input
-                v-if="!editingId"
-                v-model="adapterSearch"
-                class="input"
-                placeholder="输入关键词搜索应用（默认显示前10个）"
-                @focus="showAdapterPanel = true"
-                @input="showAdapterPanel = true"
-              />
-              <input v-else class="input" :value="form.name" disabled />
-              <div v-if="!editingId && showAdapterPanel" class="adapter-panel">
-                <div
-                  v-for="opt in visibleAdapters"
-                  :key="opt.adapter_key"
-                  class="adapter-item"
-                  @click="selectAdapter(opt.adapter_key)"
-                >
-                  <div class="adapter-title">{{ opt.display_name }}</div>
-                  <div class="adapter-sub">{{ platformName(opt.platform_code) }}</div>
+              <div v-if="!editingId" ref="appPickerRef" class="app-picker-box">
+                <input
+                  v-model="adapterSearch"
+                  class="input"
+                  placeholder="输入关键词搜索应用（默认显示前10个）"
+                  @click="toggleAdapterPanel"
+                  @input="openAdapterPanelOnInput"
+                />
+                <div v-if="showAdapterPanel" class="adapter-panel">
+                  <div
+                    v-for="opt in visibleAdapters"
+                    :key="opt.adapter_key"
+                    class="adapter-item"
+                    @click="selectAdapter(opt.adapter_key)"
+                  >
+                    <div class="adapter-title">{{ opt.display_name }}</div>
+                  </div>
+                  <div v-if="visibleAdapters.length === 0" class="adapter-empty">无匹配应用</div>
                 </div>
-                <div v-if="visibleAdapters.length === 0" class="adapter-empty">无匹配应用</div>
               </div>
+              <input v-else class="input" :value="form.name" disabled />
             </div>
 
             <div class="form-group">
@@ -82,7 +80,6 @@
                 class="form-select"
                 :options="primaryPlatformOptions"
                 placeholder="请选择一级平台"
-                @change="onPrimaryChange"
               />
             </div>
             <div class="form-group">
@@ -123,12 +120,6 @@
             </div>
 
             <div class="form-group">
-              <label><span class="required">*</span> 推荐程度</label>
-              <select v-model.number="form.recommendation" class="input">
-                <option v-for="n in 5" :key="n" :value="n">{{ n }}</option>
-              </select>
-            </div>
-            <div class="form-group">
               <label>平台预览图</label>
               <input v-model="form.platform_preview_url" class="input" placeholder="先留 URL 口子，后续可接 OSS" />
             </div>
@@ -163,7 +154,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+/**
+ * 页面用途：应用管理页（上架、编辑、查询）。
+ * 关键职责：维护应用表单、平台选择、应用模板选择和提交流程。
+ */
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import axios from 'axios'
 import DcSelect from '@/components/DcSelect.vue'
@@ -195,7 +190,6 @@ interface AppItem {
   avg_runtime_minutes: number
   ops_owner: string
   need_extra_params: boolean
-  recommendation: number
   platform_preview_url: string | null
   data_table: string
   collect_cycle: string
@@ -228,7 +222,6 @@ const form = ref({
   avg_runtime_minutes: 6,
   ops_owner: '',
   need_extra_params: false,
-  recommendation: 3,
   platform_preview_url: '',
   data_table: '',
   collect_cycle: '',
@@ -249,6 +242,7 @@ const primaryPlatformOptions = computed<SelectOption[]>(() =>
   primaryPlatforms.value.map((p) => ({ value: p.code, label: p.name })),
 )
 
+// 一级决定二级：仅展示当前一级平台下的子平台。
 const secondaryPlatforms = computed(() => {
   if (!selectedPrimaryCode.value) return []
   const primary = platformMap.value.get(selectedPrimaryCode.value)
@@ -260,6 +254,14 @@ const secondaryPlatforms = computed(() => {
 const secondaryPlatformOptions = computed<SelectOption[]>(() =>
   secondaryPlatforms.value.map((p) => ({ value: p.code, label: p.name })),
 )
+
+// 切换一级平台后，若当前二级不属于新一级，则自动清空，避免提交脏数据。
+watch(selectedPrimaryCode, () => {
+  const allowedSecondary = new Set(secondaryPlatforms.value.map((p) => p.code))
+  if (!allowedSecondary.has(form.value.platform_code)) {
+    form.value.platform_code = ''
+  }
+})
 
 const filteredApps = computed(() => {
   const q = keyword.value.trim().toLowerCase()
@@ -273,9 +275,11 @@ const filteredApps = computed(() => {
 
 const visibleAdapters = computed(() => {
   const q = adapterSearch.value.trim().toLowerCase()
+  // 仅展示“已发版/已上架”的应用模板，避免把未发布模板暴露给业务侧。
+  const releasedAdapters = adapters.value.filter((a) => a.is_listed)
   return q
-    ? adapters.value.filter((a) => a.display_name.toLowerCase().includes(q) || a.adapter_key.toLowerCase().includes(q))
-    : adapters.value.slice(0, 10)
+    ? releasedAdapters.filter((a) => a.display_name.toLowerCase().includes(q) || a.adapter_key.toLowerCase().includes(q))
+    : releasedAdapters.slice(0, 10)
 })
 
 function getPrimaryCodeBySecondary(secondaryCode: string) {
@@ -286,22 +290,25 @@ function getPrimaryCodeBySecondary(secondaryCode: string) {
   return parent?.code || ''
 }
 
-function onPrimaryChange() {
-  const allowedCodes = new Set(secondaryPlatforms.value.map((p) => p.code))
-  if (!allowedCodes.has(form.value.platform_code)) {
-    form.value.platform_code = ''
-  }
-}
-
 function handleOutsideClick(e: MouseEvent) {
-  const target = e.target as Node
-  if (showAdapterPanel.value && appPickerRef.value && !appPickerRef.value.contains(target)) {
+  if (!showAdapterPanel.value) return
+  if (!appPickerRef.value) {
     showAdapterPanel.value = false
+    return
   }
+  const eventPath = typeof e.composedPath === 'function' ? e.composedPath() : []
+  if (eventPath.includes(appPickerRef.value)) return
+  showAdapterPanel.value = false
 }
 
-function platformName(code: string) {
-  return platformMap.value.get(code)?.name || code
+/** 点击输入框时在“展开/收起”之间切换，修复只能点很上方才会关闭的问题。 */
+function toggleAdapterPanel() {
+  showAdapterPanel.value = !showAdapterPanel.value
+}
+
+/** 输入关键字时始终展开下拉，便于边输边筛选。 */
+function openAdapterPanelOnInput() {
+  showAdapterPanel.value = true
 }
 
 function resetForm() {
@@ -312,7 +319,6 @@ function resetForm() {
     avg_runtime_minutes: 6,
     ops_owner: '',
     need_extra_params: false,
-    recommendation: 3,
     platform_preview_url: '',
     data_table: '',
     collect_cycle: '',
@@ -345,7 +351,6 @@ function openEdit(row: AppItem) {
     avg_runtime_minutes: row.avg_runtime_minutes || 6,
     ops_owner: row.ops_owner || '',
     need_extra_params: !!row.need_extra_params,
-    recommendation: row.recommendation || 3,
     platform_preview_url: row.platform_preview_url || '',
     data_table: row.data_table || '',
     collect_cycle: row.collect_cycle || '',
@@ -367,8 +372,6 @@ function selectAdapter(adapterKey: string) {
   form.value.name = tpl.display_name
   form.value.description = tpl.description
   form.value.version = tpl.default_version
-  form.value.platform_code = tpl.platform_code
-  selectedPrimaryCode.value = getPrimaryCodeBySecondary(tpl.platform_code)
 }
 
 function validate() {
@@ -402,7 +405,6 @@ async function submit() {
     avg_runtime_minutes: form.value.avg_runtime_minutes,
     ops_owner: form.value.ops_owner.trim(),
     need_extra_params: form.value.need_extra_params,
-    recommendation: form.value.recommendation,
     platform_preview_url: form.value.platform_preview_url.trim() || null,
     data_table: form.value.data_table.trim(),
     collect_cycle: form.value.collect_cycle.trim(),
@@ -447,20 +449,43 @@ function debouncedLoad() {
 }
 
 onMounted(async () => {
-  document.addEventListener('mousedown', handleOutsideClick)
+  // 用捕获阶段监听，避免被内部组件阻断导致“点击外部不关闭”
+  document.addEventListener('pointerdown', handleOutsideClick, true)
   await Promise.all([loadPlatforms(), loadApps(), loadAdapters()])
 })
 
 onUnmounted(() => {
-  document.removeEventListener('mousedown', handleOutsideClick)
+  document.removeEventListener('pointerdown', handleOutsideClick, true)
 })
 </script>
 
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; }
 .search-input { width: 320px; max-width: 60vw; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.primary-btn { padding: 9px 16px; border: none; border-radius: var(--radius-sm); background: linear-gradient(135deg, var(--accent-copper), #B88560); color: #fff; cursor: pointer; font-size: 14px; }
-.ghost-btn { padding: 9px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; cursor: pointer; font-size: 14px; }
+.primary-btn {
+  padding: 9px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--accent-copper), #B88560);
+  color: var(--text-inverse);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: var(--font-body);
+  transition: all 0.2s;
+}
+.primary-btn:hover { box-shadow: 0 2px 8px rgba(200,149,108,0.3); }
+.ghost-btn {
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: var(--font-body);
+  transition: all 0.2s;
+}
+.ghost-btn:hover { border-color: var(--text-tertiary); color: var(--text-primary); }
 .card { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-md); }
 .table-wrap { overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
@@ -468,11 +493,57 @@ th, td { padding: 12px 14px; border-bottom: 1px solid var(--border-light); font-
 .empty { text-align: center; color: var(--text-tertiary); }
 .link-btn { border: none; background: transparent; color: var(--accent-copper); cursor: pointer; }
 
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-card { width: min(980px, 95vw); max-height: 92vh; background: #fff; border-radius: var(--radius-lg); display: flex; flex-direction: column; overflow: hidden; font-size: 15px; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border-light); }
-.modal-header h3 { margin: 0; font-size: 24px; }
-.close-btn { border: none; background: transparent; font-size: 24px; cursor: pointer; }
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(45, 42, 38, 0.22);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-card {
+  width: min(980px, 95vw);
+  max-height: 92vh;
+  background: var(--bg-base);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 15px;
+  font-family: var(--font-body);
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: linear-gradient(180deg, var(--bg-subtle), var(--bg-base));
+  border-bottom: 1px solid var(--border-light);
+}
+.modal-header h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.close-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+  transition: all 0.2s;
+}
+.close-btn:hover { background: var(--bg-subtle); color: var(--text-primary); }
 .modal-body { padding: 18px 20px; overflow: auto; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border-light); }
 
@@ -481,19 +552,69 @@ th, td { padding: 12px 14px; border-bottom: 1px solid var(--border-light); font-
 .form-group.full { grid-column: 1 / -1; }
 .form-group label { display: block; font-size: 14px; color: var(--text-secondary); margin-bottom: 8px; }
 .required { color: #ff4d4f; margin-right: 2px; }
-.input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); box-sizing: border-box; font-size: 14px; }
+.input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+  font-size: 14px;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: var(--bg-base);
+  outline: none;
+}
+.input:focus {
+  border-color: var(--accent-copper);
+  box-shadow: 0 0 0 2px rgba(200, 149, 108, 0.1);
+}
+.input:disabled {
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+}
 .form-select { width: 100%; display: block; }
 :deep(.form-select .dc-select) { width: 100%; display: flex; }
+:deep(.form-select .dc-select-trigger) {
+  min-height: 42px;
+  padding: 10px 12px;
+  border-color: var(--border);
+  background: var(--bg-base);
+}
+:deep(.form-select .dc-select.open .dc-select-trigger),
+:deep(.form-select .dc-select-trigger:hover) {
+  border-color: var(--accent-copper);
+  box-shadow: 0 0 0 2px rgba(200, 149, 108, 0.1);
+}
+:deep(.form-select .dc-select-value) {
+  font-size: 14px;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+}
+:deep(.form-select .dc-select-value.placeholder) {
+  color: var(--text-tertiary);
+}
 .textarea { min-height: 110px; resize: vertical; }
 .radio-group { display: flex; gap: 18px; padding: 10px 0; font-size: 14px; }
 .input-with-suffix { display: grid; grid-template-columns: 1fr auto; }
 .suffix { border: 1px solid var(--border); border-left: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; padding: 10px 12px; background: var(--bg-subtle); color: var(--text-secondary); font-size: 14px; }
 .input-with-suffix .input { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 
-.adapter-panel { position: absolute; left: 0; right: 0; top: 72px; max-height: 240px; overflow: auto; border: 1px solid var(--border); background: #fff; border-radius: var(--radius-sm); z-index: 20; box-shadow: var(--shadow-sm); }
-.adapter-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border-light); }
-.adapter-item:hover { background: var(--bg-hover); }
+.adapter-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: var(--bg-base);
+  border-radius: var(--radius-sm);
+  z-index: 20;
+  box-shadow: var(--shadow-md);
+}
+.app-picker-box { position: relative; }
+.adapter-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border-light); transition: background-color 0.15s ease; }
+.adapter-item:hover { background: var(--select-option-hover, #F7F1E8); }
 .adapter-title { font-size: 14px; color: var(--text-primary); }
-.adapter-sub { font-size: 12px; color: var(--text-tertiary); margin-top: 3px; }
 .adapter-empty { padding: 12px; color: var(--text-tertiary); text-align: center; font-size: 14px; }
 </style>

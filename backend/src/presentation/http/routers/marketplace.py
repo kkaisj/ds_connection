@@ -33,7 +33,6 @@ class CreateConnectorAppRequest(BaseModel):
     avg_runtime_minutes: conint(ge=1, le=1440) = Field(6, description="平均运行时长（分钟）")
     ops_owner: str = Field("", max_length=128, description="运维人员")
     need_extra_params: bool = Field(False, description="是否需要额外参数")
-    recommendation: conint(ge=1, le=5) = Field(3, description="推荐程度 1-5")
     platform_preview_url: str | None = Field(None, max_length=500, description="平台预览图地址")
     data_table: str = Field("", max_length=256, description="数据表格")
     collect_cycle: str = Field("", max_length=128, description="采集周期")
@@ -51,7 +50,6 @@ class UpdateConnectorAppRequest(BaseModel):
     avg_runtime_minutes: conint(ge=1, le=1440) | None = Field(None)
     ops_owner: str | None = Field(None, max_length=128)
     need_extra_params: bool | None = Field(None)
-    recommendation: conint(ge=1, le=5) | None = Field(None)
     platform_preview_url: str | None = Field(None, max_length=500)
     data_table: str | None = Field(None, max_length=256)
     collect_cycle: str | None = Field(None, max_length=128)
@@ -67,7 +65,6 @@ def _extract_app_meta(app: ConnectorApp) -> dict:
         "avg_runtime_minutes": int(meta.get("avg_runtime_minutes", 6) or 6),
         "ops_owner": str(meta.get("ops_owner", "") or ""),
         "need_extra_params": bool(meta.get("need_extra_params", False)),
-        "recommendation": int(meta.get("recommendation", 3) or 3),
         "platform_preview_url": meta.get("platform_preview_url"),
         "data_table": str(meta.get("data_table", "") or ""),
         "collect_cycle": str(meta.get("collect_cycle", "") or ""),
@@ -138,7 +135,6 @@ async def create_app(payload: CreateConnectorAppRequest, session: AsyncSession =
             "avg_runtime_minutes": payload.avg_runtime_minutes,
             "ops_owner": payload.ops_owner.strip(),
             "need_extra_params": payload.need_extra_params,
-            "recommendation": payload.recommendation,
             "platform_preview_url": payload.platform_preview_url.strip() if payload.platform_preview_url else None,
             "data_table": payload.data_table.strip(),
             "collect_cycle": payload.collect_cycle.strip(),
@@ -169,7 +165,7 @@ async def create_app(payload: CreateConnectorAppRequest, session: AsyncSession =
 
 @router.get("/available-adapters")
 async def list_available_adapters(session: AsyncSession = Depends(get_db)):
-    """查询已开发应用模板（按系统标识注册），并标记是否已上架。"""
+    """查询已开发应用模板（按系统标识注册），并标记是否已发版（active）。"""
     templates = list_registered_adapter_templates()
 
     rows = (
@@ -182,6 +178,8 @@ async def list_available_adapters(session: AsyncSession = Depends(get_db)):
             ).where(
                 ConnectorApp.is_deleted == False,
                 ConnectorApp.adapter_key.is_not(None),
+                # 仅把 active 视为“已发版”，用于前端应用选择下拉过滤。
+                ConnectorApp.status == "active",
             )
         )
     ).all()
@@ -364,7 +362,6 @@ async def update_app(app_id: int, payload: UpdateConnectorAppRequest, session: A
         "avg_runtime_minutes",
         "ops_owner",
         "need_extra_params",
-        "recommendation",
         "platform_preview_url",
         "data_table",
         "collect_cycle",

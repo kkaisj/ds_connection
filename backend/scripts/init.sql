@@ -178,7 +178,17 @@ INSERT INTO platform (id, code, name, parent_id) VALUES
   (1, 'taobao',  '淘宝天猫', 10),
   (2, 'jd',      '京东', 10),
   (3, 'pdd',     '拼多多', 10),
-  (4, 'douyin',  '抖音', 10);
+  (4, 'douyin',  '抖音', 10),
+  (5, 'xiaohongshu', '小红书', 10),
+  (6, 'kuaishou', '快手电商', 10),
+  (7, 'weidian', '微店', 10),
+  (8, 'vip', '唯品会', 10),
+  (9, 'suning', '苏宁易购', 10),
+  (11, 'dewu', '得物', 10),
+  (12, 'amazon', '亚马逊', 10),
+  (13, 'shopify', 'Shopify', 10),
+  (14, 'lazada', 'Lazada', 10),
+  (15, 'shopee', 'Shopee', 10);
 
 -- 连接应用
 INSERT INTO connector_app (id, platform_id, name, adapter_key, version, description) VALUES
