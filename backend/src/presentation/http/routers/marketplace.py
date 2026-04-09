@@ -3,6 +3,7 @@
 提供连接应用查询、上架和管理接口。
 """
 
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -15,7 +16,12 @@ from infrastructure.connectors.base.registry import (
     get_adapter_meta,
     list_registered_adapter_templates,
 )
-from infrastructure.persistence.models.models import ConnectorApp, Platform, TaskInstance
+from infrastructure.persistence.models.models import (
+    AdapterRelease,
+    ConnectorApp,
+    Platform,
+    TaskInstance,
+)
 
 router = APIRouter()
 
@@ -57,6 +63,20 @@ class UpdateConnectorAppRequest(BaseModel):
     usage_guide: str | None = Field(None, max_length=2000)
 
 
+class UpsertAdapterReleaseRequest(BaseModel):
+    """适配器发版请求体（新增或更新）。"""
+
+    adapter_key: str = Field(..., max_length=128, description="适配器标识")
+    version: str = Field(..., max_length=64, description="发布版本")
+    status: Literal["draft", "testing", "released", "deprecated"] = Field(
+        "draft", description="发布状态"
+    )
+    qa_passed: bool = Field(False, description="QA 是否通过")
+    checksum: str | None = Field(None, max_length=128, description="发布包校验值")
+    release_notes: str | None = Field(None, max_length=1000, description="发布说明")
+    released_by: str | None = Field(None, max_length=64, description="发布人")
+
+
 def _extract_app_meta(app: ConnectorApp) -> dict:
     """统一提取应用扩展信息。"""
     meta = app.param_schema or {}
@@ -70,6 +90,25 @@ def _extract_app_meta(app: ConnectorApp) -> dict:
         "collect_cycle": str(meta.get("collect_cycle", "") or ""),
         "metrics": str(meta.get("metrics", "") or ""),
         "usage_guide": str(meta.get("usage_guide", "") or ""),
+    }
+
+
+def _serialize_release(release: AdapterRelease) -> dict:
+    """统一序列化发版记录，避免多个接口字段漂移。"""
+    adapter_meta = get_adapter_meta(release.adapter_key) or {}
+    return {
+        "id": release.id,
+        "adapter_key": release.adapter_key,
+        "display_name": adapter_meta.get("display_name"),
+        "version": release.version,
+        "status": release.status,
+        "qa_passed": release.qa_passed,
+        "checksum": release.checksum,
+        "release_notes": release.release_notes,
+        "released_by": release.released_by,
+        "released_at": release.released_at.isoformat() if release.released_at else None,
+        "created_at": release.created_at.isoformat() if release.created_at else None,
+        "updated_at": release.updated_at.isoformat() if release.updated_at else None,
     }
 
 
@@ -105,6 +144,7 @@ async def create_app(payload: CreateConnectorAppRequest, session: AsyncSession =
         return {"code": 400, "message": "同平台下应用名称已存在", "data": None}
 
     adapter_key = payload.adapter_key.strip()
+    version = payload.version.strip()
     adapter_meta = get_adapter_meta(adapter_key)
     if not adapter_meta:
         return {"code": 400, "message": "系统标识未注册", "data": None}
@@ -123,11 +163,24 @@ async def create_app(payload: CreateConnectorAppRequest, session: AsyncSession =
     if key_exists > 0:
         return {"code": 400, "message": "该应用模板已上架", "data": None}
 
+    # 上架前必须绑定“已发版”记录，作为统一发版准入门槛。
+    release = await session.scalar(
+        select(AdapterRelease).where(
+            AdapterRelease.adapter_key == adapter_key,
+            AdapterRelease.version == version,
+            AdapterRelease.status == "released",
+            AdapterRelease.qa_passed == True,
+            AdapterRelease.is_deleted == False,
+        )
+    )
+    if not release:
+        return {"code": 400, "message": "该版本未发版或未通过 QA，不能上架", "data": None}
+
     app = ConnectorApp(
         platform_id=platform.id,
         name=payload.name.strip(),
         adapter_key=adapter_key,
-        version=payload.version.strip(),
+        version=version,
         description=payload.description.strip() if payload.description else None,
         status="active" if payload.is_published else "inactive",
         param_schema={
@@ -140,6 +193,9 @@ async def create_app(payload: CreateConnectorAppRequest, session: AsyncSession =
             "collect_cycle": payload.collect_cycle.strip(),
             "metrics": payload.metrics.strip(),
             "usage_guide": payload.usage_guide.strip(),
+            "release_id": release.id,
+            "release_checksum": release.checksum,
+            "release_status": release.status,
         },
     )
     session.add(app)
@@ -165,7 +221,7 @@ async def create_app(payload: CreateConnectorAppRequest, session: AsyncSession =
 
 @router.get("/available-adapters")
 async def list_available_adapters(session: AsyncSession = Depends(get_db)):
-    """查询已开发应用模板（按系统标识注册），并标记是否已发版（active）。"""
+    """查询已开发应用模板，并返回发版信息与已上架状态。"""
     templates = list_registered_adapter_templates()
 
     rows = (
@@ -178,8 +234,6 @@ async def list_available_adapters(session: AsyncSession = Depends(get_db)):
             ).where(
                 ConnectorApp.is_deleted == False,
                 ConnectorApp.adapter_key.is_not(None),
-                # 仅把 active 视为“已发版”，用于前端应用选择下拉过滤。
-                ConnectorApp.status == "active",
             )
         )
     ).all()
@@ -196,9 +250,26 @@ async def list_available_adapters(session: AsyncSession = Depends(get_db)):
             }
         )
 
+    release_rows = (
+        await session.execute(
+            select(AdapterRelease).where(
+                AdapterRelease.is_deleted == False,
+                AdapterRelease.status == "released",
+                AdapterRelease.qa_passed == True,
+            )
+        )
+    ).scalars().all()
+    released_versions_by_key: dict[str, list[str]] = {}
+    for release in release_rows:
+        released_versions_by_key.setdefault(release.adapter_key, []).append(release.version)
+    for key in released_versions_by_key:
+        # 版本字符串按“最新优先”展示，当前先走字典序降序（MVP）。
+        released_versions_by_key[key] = sorted(set(released_versions_by_key[key]), reverse=True)
+
     data = []
     for t in templates:
         listed_apps = by_key.get(t["adapter_key"], [])
+        released_versions = released_versions_by_key.get(t["adapter_key"], [])
         data.append(
             {
                 "adapter_key": t["adapter_key"],
@@ -206,12 +277,65 @@ async def list_available_adapters(session: AsyncSession = Depends(get_db)):
                 "display_name": t["display_name"],
                 "description": t["description"],
                 "default_version": t["default_version"],
-                "is_listed": len(listed_apps) > 0,
+                "is_listed": len(released_versions) > 0,
+                "latest_released_version": released_versions[0] if released_versions else None,
+                "released_versions": released_versions,
                 "listed_apps": listed_apps,
             }
         )
 
     return {"code": 0, "message": "ok", "data": data}
+
+
+@router.get("/releases")
+async def list_releases(
+    adapter_key: str | None = Query(None, description="按适配器标识筛选"),
+    status: Literal["draft", "testing", "released", "deprecated"] | None = Query(
+        None, description="按发布状态筛选"
+    ),
+    session: AsyncSession = Depends(get_db),
+):
+    """查询适配器发版记录。"""
+    stmt = select(AdapterRelease).where(AdapterRelease.is_deleted == False)
+    if adapter_key:
+        stmt = stmt.where(AdapterRelease.adapter_key == adapter_key.strip())
+    if status:
+        stmt = stmt.where(AdapterRelease.status == status)
+    stmt = stmt.order_by(AdapterRelease.adapter_key, AdapterRelease.version.desc())
+    rows = (await session.execute(stmt)).scalars().all()
+    return {"code": 0, "message": "ok", "data": [_serialize_release(r) for r in rows]}
+
+
+@router.post("/releases")
+async def upsert_release(payload: UpsertAdapterReleaseRequest, session: AsyncSession = Depends(get_db)):
+    """新增或更新适配器发版记录。"""
+    adapter_key = payload.adapter_key.strip()
+    version = payload.version.strip()
+    adapter_meta = get_adapter_meta(adapter_key)
+    if not adapter_meta:
+        return {"code": 400, "message": "系统标识未注册", "data": None}
+
+    release = await session.scalar(
+        select(AdapterRelease).where(
+            AdapterRelease.adapter_key == adapter_key,
+            AdapterRelease.version == version,
+            AdapterRelease.is_deleted == False,
+        )
+    )
+    if not release:
+        release = AdapterRelease(adapter_key=adapter_key, version=version)
+        session.add(release)
+
+    release.status = payload.status
+    release.qa_passed = payload.qa_passed
+    release.checksum = payload.checksum.strip() if payload.checksum else None
+    release.release_notes = payload.release_notes.strip() if payload.release_notes else None
+    release.released_by = payload.released_by.strip() if payload.released_by else None
+    release.released_at = datetime.now() if payload.status == "released" else None
+
+    await session.commit()
+    await session.refresh(release)
+    return {"code": 0, "message": "ok", "data": _serialize_release(release)}
 
 
 @router.get("")

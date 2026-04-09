@@ -1,6 +1,6 @@
 {
     "project":  "DC 数据连接器",
-    "last_updated":  "2026-04-09",
+    "last_updated":  "2026-04-10",
     "completed":  [
                       {
                           "step":  1,
@@ -150,6 +150,27 @@
                                         "应用管理弹窗样式优化：表单与标题字号整体增大，提升可读性",
                                         "应用管理弹窗修复：应用选择下拉支持点击外部自动关闭",
                                         "应用管理弹窗优化：一级/二级平台下拉统一替换为 DcSelect 样式"
+                                    ]
+                      },
+                      {
+                          "step":  13,
+                          "title":  "应用管理联动修复与适配器发版链路",
+                          "date":  "2026-04-10",
+                          "items":  [
+                                        "应用管理修复：一级平台决定二级平台，切换一级后自动清理无效二级值",
+                                        "平台层级脚本更新并执行：淘宝天猫/拼多多/抖音按业务域挂载二级平台",
+                                        "应用管理交互优化：二级平台保持可选，首次点击下拉定位错位问题修复",
+                                        "下拉主题视觉统一：应用选择、一级平台、二级平台悬浮色使用统一主题变量",
+                                        "移除“推荐程度”字段并完成前后端与数据库清理同步",
+                                        "新增 adapter_release 发布表（draft/testing/released/deprecated + qa_passed）",
+                                        "上架接口新增发布准入校验：仅允许 released 且 qa_passed=true 的版本上架",
+                                        "任务执行新增发布态校验与发布快照日志（release_id/version/checksum）",
+                                        "新增发版管理接口：GET/POST /api/v1/apps/releases",
+                                        "新增前端“发版管理”页面：支持发版列表筛选、创建发版、编辑发版状态",
+                                        "新增前端“适配器工作台”页面：代码优先编辑、页面预览、实时操作解析与 Python 下载",
+                                        "补充开发说明文档：README.md（开发位置与开发->发版->上架最短流程）",
+                                        "补充架构文档：docs/architecture.md（Adapter 生命周期闭环）",
+                                        "同步更新文档：docs/data-model/schema.sql、docs/api/openapi.yaml、docs/conventions.md"
                                     ]
                       }
                   ],

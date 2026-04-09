@@ -83,6 +83,44 @@ paths:
               schema:
                 $ref: "#/components/schemas/AvailableAdaptersResponse"
 
+  /api/v1/apps/releases:
+    get:
+      tags: [apps]
+      summary: 查询适配器发版记录
+      parameters:
+        - in: query
+          name: adapter_key
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, testing, released, deprecated]
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleasesResponse"
+    post:
+      tags: [apps]
+      summary: 新增或更新适配器发版记录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertReleaseRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseResponse"
+
   /api/v1/apps/platforms:
     get:
       tags: [apps]
@@ -435,6 +473,7 @@ components:
         version:
           type: string
           example: 1.0.0
+          description: 必须是已发版且 QA 通过的版本
         description:
           type: string
           nullable: true
@@ -494,7 +533,7 @@ components:
 
     AdapterItem:
       type: object
-      required: [adapter_key, platform_code, display_name, description, default_version, is_listed, listed_apps]
+      required: [adapter_key, platform_code, display_name, description, default_version, is_listed, latest_released_version, released_versions, listed_apps]
       properties:
         adapter_key:
           type: string
@@ -513,7 +552,16 @@ components:
           example: 1.0.0
         is_listed:
           type: boolean
-          description: 是否已有 active 状态的上架应用
+          description: 是否存在可上架的已发版版本
+        latest_released_version:
+          type: string
+          nullable: true
+          description: 最新已发版版本（无则为 null）
+        released_versions:
+          type: array
+          description: 该适配器可上架的已发版版本列表（降序）
+          items:
+            type: string
         listed_apps:
           type: array
           items:
@@ -527,6 +575,70 @@ components:
               status:
                 type: string
                 enum: [active, inactive]
+
+    AdapterRelease:
+      type: object
+      required: [id, adapter_key, version, status, qa_passed]
+      properties:
+        id:
+          type: integer
+        adapter_key:
+          type: string
+        display_name:
+          type: string
+          nullable: true
+          description: 适配器中文应用名（来自注册表）
+        version:
+          type: string
+        status:
+          type: string
+          enum: [draft, testing, released, deprecated]
+        qa_passed:
+          type: boolean
+        checksum:
+          type: string
+          nullable: true
+        release_notes:
+          type: string
+          nullable: true
+        released_by:
+          type: string
+          nullable: true
+        released_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    UpsertReleaseRequest:
+      type: object
+      required: [adapter_key, version, status, qa_passed]
+      properties:
+        adapter_key:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+          enum: [draft, testing, released, deprecated]
+        qa_passed:
+          type: boolean
+        checksum:
+          type: string
+          nullable: true
+        release_notes:
+          type: string
+          nullable: true
+        released_by:
+          type: string
+          nullable: true
 
     PlatformItem:
       type: object
@@ -659,6 +771,22 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/AdapterItem"
+    ReleaseResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/AdapterRelease"
+    ReleasesResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/AdapterRelease"
     PlatformsResponse:
       allOf:
         - $ref: "#/components/schemas/BaseResponse"

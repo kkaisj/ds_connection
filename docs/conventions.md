@@ -10,6 +10,7 @@
 2. Service 负责业务编排、事务、重试策略。
 3. Repository 仅负责数据访问，不包含业务判断。
 4. DTO 与 ORM 实体分离。
+5. 应用上架与任务执行必须校验适配器版本发布状态：仅 `released` 且 `qa_passed=true` 可进入生产链路。
 
 ## Frontend
 1. 页面状态优先局部化，跨页面状态进入 Pinia。

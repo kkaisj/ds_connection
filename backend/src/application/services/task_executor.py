@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.connectors.base.registry import get_adapter
 from infrastructure.persistence.models.models import (
+    AdapterRelease,
     ConnectorApp,
     ShopAccount,
     TaskInstance,
@@ -56,12 +57,43 @@ async def execute_task_run(session: AsyncSession, run_id: int) -> None:
         await _fail_run(session, run, "NO_ADAPTER", f"应用 {app.name} 未配置适配器")
         return
 
+    # 运行前二次校验：只允许执行“已发版 + QA 通过”的适配器版本。
+    release = await session.scalar(
+        select(AdapterRelease).where(
+            AdapterRelease.adapter_key == app.adapter_key,
+            AdapterRelease.version == app.version,
+            AdapterRelease.status == "released",
+            AdapterRelease.qa_passed == True,
+            AdapterRelease.is_deleted == False,
+        )
+    )
+    if not release:
+        await _fail_run(
+            session,
+            run,
+            "RELEASE_NOT_READY",
+            f"适配器 {app.adapter_key}@{app.version} 未发版或未通过 QA",
+        )
+        return
+
     # ── 2. 更新状态为 running ──
     run.status = "running"
     run.started_at = datetime.now()
     await session.commit()
 
-    await _add_log(session, run.id, "start", "INFO", f"开始执行: {task.name} (适配器: {app.adapter_key})")
+    await _add_log(
+        session,
+        run.id,
+        "start",
+        "INFO",
+        f"开始执行: {task.name} (适配器: {app.adapter_key})",
+        ext={
+            "adapter_key": app.adapter_key,
+            "adapter_version": app.version,
+            "release_id": release.id,
+            "release_checksum": release.checksum,
+        },
+    )
 
     # ── 3. 获取适配器 ──
     try:
@@ -128,9 +160,16 @@ async def _fail_run(session: AsyncSession, run: TaskRun, code: str, msg: str) ->
     logger.error(f"TaskRun {run.id} 失败: {code} - {msg}")
 
 
-async def _add_log(session: AsyncSession, run_id: int, step: str, level: str, message: str) -> None:
+async def _add_log(
+    session: AsyncSession,
+    run_id: int,
+    step: str,
+    level: str,
+    message: str,
+    ext: dict | None = None,
+) -> None:
     """写入步骤日志。"""
-    log = TaskRunLog(run_id=run_id, step=step, level=level, message=message)
+    log = TaskRunLog(run_id=run_id, step=step, level=level, message=message, ext=ext)
     session.add(log)
     await session.flush()
 

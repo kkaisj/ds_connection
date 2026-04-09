@@ -80,6 +80,39 @@ class ConnectorApp(Base):
     task_instances: Mapped[list["TaskInstance"]] = relationship(back_populates="app")
 
 
+class AdapterRelease(Base):
+    """
+    适配器发布表。
+    用于管理 DrissionPage 适配器从开发到发版的状态流转，
+    并作为“应用上架”“任务执行”的统一发布依据。
+    """
+    __tablename__ = "adapter_release"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    adapter_key: Mapped[str] = mapped_column(String(128), nullable=False, comment="适配器标识")
+    version: Mapped[str] = mapped_column(String(64), nullable=False, comment="发布版本")
+    status: Mapped[str] = mapped_column(
+        Enum("draft", "testing", "released", "deprecated", name="adapter_release_status"),
+        nullable=False,
+        default="draft",
+        comment="发布状态",
+    )
+    qa_passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="QA 是否通过")
+    checksum: Mapped[str | None] = mapped_column(String(128), nullable=True, comment="发布包校验值")
+    release_notes: Mapped[str | None] = mapped_column(String(1000), nullable=True, comment="发布说明")
+    released_by: Mapped[str | None] = mapped_column(String(64), nullable=True, comment="发布人")
+    released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="发布时间")
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="软删除标记")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("adapter_key", "version", name="uk_adapter_release_key_version"),
+        Index("idx_adapter_release_status", "status"),
+        Index("idx_adapter_release_adapter_key", "adapter_key"),
+    )
+
+
 class ShopAccount(Base):
     """
     店铺账号表，敏感字段加密存储。

@@ -31,6 +31,18 @@ const router = createRouter({
           meta: { title: '应用管理' },
         },
         {
+          path: 'release-management',
+          name: 'release-management',
+          component: () => import('@/pages/ReleaseManagement.vue'),
+          meta: { title: '发版管理' },
+        },
+        {
+          path: 'adapter-workbench',
+          name: 'adapter-workbench',
+          component: () => import('@/pages/AdapterWorkbench.vue'),
+          meta: { title: '适配器工作台' },
+        },
+        {
           path: 'tasks',
           name: 'tasks',
           component: () => import('@/pages/Tasks.vue'),

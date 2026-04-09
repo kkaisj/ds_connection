@@ -25,6 +25,24 @@ CREATE TABLE IF NOT EXISTS connector_app (
   KEY idx_connector_app_status (status)
 );
 
+CREATE TABLE IF NOT EXISTS adapter_release (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  adapter_key VARCHAR(128) NOT NULL,
+  version VARCHAR(64) NOT NULL,
+  status ENUM('draft','testing','released','deprecated') NOT NULL DEFAULT 'draft',
+  qa_passed TINYINT(1) NOT NULL DEFAULT 0,
+  checksum VARCHAR(128) NULL,
+  release_notes VARCHAR(1000) NULL,
+  released_by VARCHAR(64) NULL,
+  released_at DATETIME NULL,
+  is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_adapter_release_key_version (adapter_key, version),
+  KEY idx_adapter_release_status (status),
+  KEY idx_adapter_release_adapter_key (adapter_key)
+);
+
 CREATE TABLE IF NOT EXISTS shop_account (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   platform_id BIGINT NOT NULL,

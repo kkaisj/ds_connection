@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import async_session_factory, engine, Base
 from infrastructure.persistence.models.models import (
+    AdapterRelease,
     Platform,
     ConnectorApp,
     ShopAccount,
@@ -58,15 +59,26 @@ async def seed() -> None:
 
         # ── 连接应用 ──
         apps = [
-            ConnectorApp(platform_id=platforms[0].id, name="订单数据采集", version="1.0.0", description="采集淘宝天猫订单数据"),
-            ConnectorApp(platform_id=platforms[0].id, name="物流轨迹更新", version="1.0.0", description="更新淘宝天猫物流信息"),
-            ConnectorApp(platform_id=platforms[1].id, name="商品库存同步", version="1.0.0", description="同步京东商品库存"),
-            ConnectorApp(platform_id=platforms[1].id, name="退款数据同步", version="1.0.0", description="同步京东退款记录"),
-            ConnectorApp(platform_id=platforms[2].id, name="评价数据抓取", version="1.0.0", description="抓取拼多多评价数据"),
-            ConnectorApp(platform_id=platforms[3].id, name="流量数据采集", version="1.0.0", description="采集抖音流量数据"),
+            ConnectorApp(platform_id=platforms[0].id, name="订单数据采集", adapter_key="taobao.order_sync", version="1.0.0", description="采集淘宝天猫订单数据"),
+            ConnectorApp(platform_id=platforms[0].id, name="物流轨迹更新", adapter_key="taobao.logistics_track", version="1.0.0", description="更新淘宝天猫物流信息"),
+            ConnectorApp(platform_id=platforms[1].id, name="商品库存同步", adapter_key="jd.product_stock_sync", version="1.0.0", description="同步京东商品库存"),
+            ConnectorApp(platform_id=platforms[1].id, name="退款数据同步", adapter_key="jd.refund_sync", version="1.0.0", description="同步京东退款记录"),
+            ConnectorApp(platform_id=platforms[2].id, name="评价数据抓取", adapter_key="pdd.review_scrape", version="1.0.0", description="抓取拼多多评价数据"),
+            ConnectorApp(platform_id=platforms[3].id, name="流量数据采集", adapter_key="douyin.traffic_analytics", version="1.0.0", description="采集抖音流量数据"),
         ]
         session.add_all(apps)
         await session.flush()
+
+        # ── 默认发版记录（保证“已发版”链路可用）──
+        releases = [
+            AdapterRelease(adapter_key="taobao.order_sync", version="1.0.0", status="released", qa_passed=True, released_by="system", release_notes="种子默认发版"),
+            AdapterRelease(adapter_key="taobao.logistics_track", version="1.0.0", status="released", qa_passed=True, released_by="system", release_notes="种子默认发版"),
+            AdapterRelease(adapter_key="jd.product_stock_sync", version="1.0.0", status="released", qa_passed=True, released_by="system", release_notes="种子默认发版"),
+            AdapterRelease(adapter_key="jd.refund_sync", version="1.0.0", status="released", qa_passed=True, released_by="system", release_notes="种子默认发版"),
+            AdapterRelease(adapter_key="pdd.review_scrape", version="1.0.0", status="released", qa_passed=True, released_by="system", release_notes="种子默认发版"),
+            AdapterRelease(adapter_key="douyin.traffic_analytics", version="1.0.0", status="released", qa_passed=True, released_by="system", release_notes="种子默认发版"),
+        ]
+        session.add_all(releases)
 
         # ── 店铺账号 ──
         accounts = [
