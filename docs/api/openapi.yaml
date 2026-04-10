@@ -75,6 +75,27 @@ paths:
     get:
       tags: [apps]
       summary: 查询已开发适配器列表（含是否已发版）
+      parameters:
+        - in: query
+          name: keyword
+          schema:
+            type: string
+          description: 按 adapter_key 或 display_name 搜索
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+          description: 返回条数，默认 10
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: 分页偏移量，默认 0
       responses:
         "200":
           description: ok

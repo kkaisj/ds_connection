@@ -177,6 +177,8 @@ interface AdapterItem {
   description: string
   default_version: string
   is_listed: boolean
+  latest_released_version: string | null
+  released_versions: string[]
 }
 interface AppItem {
   id: number
@@ -371,7 +373,7 @@ function selectAdapter(adapterKey: string) {
   showAdapterPanel.value = false
   form.value.name = tpl.display_name
   form.value.description = tpl.description
-  form.value.version = tpl.default_version
+  form.value.version = tpl.latest_released_version || tpl.default_version
 }
 
 function validate() {

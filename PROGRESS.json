@@ -168,9 +168,14 @@
                                         "新增发版管理接口：GET/POST /api/v1/apps/releases",
                                         "新增前端“发版管理”页面：支持发版列表筛选、创建发版、编辑发版状态",
                                         "新增前端“适配器工作台”页面：代码优先编辑、页面预览、实时操作解析与 Python 下载",
-                                        "补充开发说明文档：README.md（开发位置与开发->发版->上架最短流程）",
+                                        "补充开发说明文档：README.md（开发位置与开发-\u003e发版-\u003e上架最短流程）",
                                         "补充架构文档：docs/architecture.md（Adapter 生命周期闭环）",
-                                        "同步更新文档：docs/data-model/schema.sql、docs/api/openapi.yaml、docs/conventions.md"
+                                        "同步更新文档：docs/data-model/schema.sql、docs/api/openapi.yaml、docs/conventions.md",
+                                        "新增 demo 适配器 demo.baidu_hello（百度输入“你好”回车），用于最小执行闭环联调",
+                                        "上架校验放开平台与适配器强绑定，支持业务侧先自选平台后续再调整",
+                                        "重试接口补齐异步执行链路：/tasks/{task_id}/retry 现在会真正触发后台执行",
+                                        "应用管理上架默认版本改为 latest_released_version，避免发版后因默认版本不匹配导致上架失败",
+                                        "README 新增“百度你好”最小闭环演示步骤"
                                     ]
                       }
                   ],

@@ -55,6 +55,13 @@ _REGISTRY: dict[str, dict[str, str]] = {
         "description": "采集抖音流量分析数据",
         "default_version": "1.0.0",
     },
+    "demo.baidu_hello": {
+        "class_path": "infrastructure.connectors.demo.baidu_hello.DemoBaiduHelloAdapter",
+        "platform_code": "douyin",
+        "display_name": "百度你好演示",
+        "description": "演示自动化：打开百度，输入“你好”，点击搜索",
+        "default_version": "0.1.0",
+    },
 }
 
 

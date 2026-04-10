@@ -71,3 +71,26 @@ npm run dev
 ## 详细说明
 完整运行说明见：
 - `docs/runbook.md`
+
+## 最小闭环演示（百度“你好”）
+
+用于快速验证“开发 -> 发版 -> 上架 -> 绑定任务 -> 执行 -> 回流”链路。
+
+1. 进入“发版管理”页面，新增发版：
+```http
+POST /api/v1/apps/releases
+{
+  "adapter_key": "demo.baidu_hello",
+  "version": "0.1.0",
+  "status": "released",
+  "qa_passed": true,
+  "released_by": "kun-kun"
+}
+```
+2. 进入“应用管理”页面，上架“百度你好演示”应用（版本默认取最新已发版版本）。
+3. 在“连接任务”创建任务并手动执行。
+4. 在“执行记录/看板”查看运行结果与日志回流。
+
+说明：
+- `demo.baidu_hello` 默认模拟执行（无需 DrissionPage）。
+- 当任务参数 `real_browser=true` 时，会尝试真实浏览器执行“打开百度 -> 输入你好 -> 回车”（需安装 DrissionPage）。

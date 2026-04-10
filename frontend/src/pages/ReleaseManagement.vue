@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="release-page">
     <div class="toolbar">
       <div class="filters">
@@ -15,15 +15,15 @@
           placeholder="状态筛选"
         />
       </div>
-      <button class="primary-btn" @click="openModal">新增发版</button>
+      <button class="primary-btn" @click="() => openModal()">新增发版</button>
     </div>
 
     <div class="card table-wrap">
       <table>
         <thead>
           <tr>
-            <th>适配器</th>
-            <th>应用中文名</th>
+            <th>适配器标识</th>
+            <th>应用名称</th>
             <th>版本</th>
             <th>状态</th>
             <th>QA</th>
@@ -44,7 +44,7 @@
             <td>{{ row.released_by || '--' }}</td>
             <td>{{ row.released_at ? formatDate(row.released_at) : '--' }}</td>
             <td>
-              <button class="link-btn" @click="openModal(row)">编辑</button>
+              <button class="link-btn" @click="() => openModal(row)">编辑</button>
             </td>
           </tr>
           <tr v-if="releases.length === 0">
@@ -63,17 +63,60 @@
         <div class="modal-body">
           <div class="form-grid">
             <div class="form-group">
-              <label><span class="required">*</span> 适配器标识</label>
-              <input v-model="form.adapter_key" class="input" :disabled="editing" placeholder="如：douyin.traffic_analytics" />
+              <label><span class="required">*</span> 应用选择</label>
+              <DcSelect
+                v-model="form.adapter_key"
+                class="status-select"
+                :options="adapterOptions"
+                :disabled="editing"
+                searchable
+                remote-search
+                :loading="adapterLoading"
+                search-placeholder="输入应用名称或 adapter_key"
+                placeholder="请选择已开发应用"
+                @change="onAdapterChange"
+                @search="onAdapterSearch"
+                @reach-end="onAdapterReachEnd"
+              />
             </div>
+
             <div class="form-group">
-              <label><span class="required">*</span> 版本</label>
-              <input v-model="form.version" class="input" :disabled="editing" placeholder="如：1.1.0" />
+              <label><span class="required">*</span> 版本选择</label>
+              <DcSelect
+                v-model="selectedVersionOption"
+                class="status-select"
+                :options="versionOptions"
+                :disabled="editing"
+                placeholder="请选择历史版本"
+                @change="onVersionOptionChange"
+              />
             </div>
+
+            <div class="form-group full" v-if="selectedAdapterMeta">
+              <label>模块信息（自动读取）</label>
+              <div class="meta-box">
+                <div><span class="meta-key">应用名称：</span>{{ selectedAdapterMeta.display_name }}</div>
+                <div><span class="meta-key">模块标识：</span>{{ selectedAdapterMeta.adapter_key }}</div>
+                <div><span class="meta-key">平台：</span>{{ selectedAdapterMeta.platform_code }}</div>
+                <div><span class="meta-key">说明：</span>{{ selectedAdapterMeta.description || '--' }}</div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label><span class="required">*</span> 发版版本</label>
+              <input
+                v-model="form.version"
+                class="input"
+                :disabled="editing"
+                placeholder="如：1.1.0（可在历史版本基础上修改）"
+              />
+            </div>
+
             <div class="form-group">
               <label><span class="required">*</span> 发布状态</label>
               <DcSelect v-model="form.status" class="status-select" :options="statusOptions" placeholder="请选择状态" />
             </div>
+
             <div class="form-group">
               <label><span class="required">*</span> QA 是否通过</label>
               <div class="radio-group">
@@ -81,14 +124,17 @@
                 <label><input v-model="form.qa_passed" type="radio" :value="false" /> 未通过</label>
               </div>
             </div>
+
             <div class="form-group">
               <label>发布人</label>
               <input v-model="form.released_by" class="input" placeholder="如：kun-kun" />
             </div>
+
             <div class="form-group">
               <label>Checksum</label>
-              <input v-model="form.checksum" class="input" placeholder="可选，便于追溯包内容" />
+              <input v-model="form.checksum" class="input" placeholder="可选，便于追溯发布包" />
             </div>
+
             <div class="form-group full">
               <label>发布说明</label>
               <textarea v-model="form.release_notes" class="input textarea" placeholder="记录变更说明、风险点与回滚信息" />
@@ -107,9 +153,9 @@
 <script setup lang="ts">
 /**
  * 页面用途：适配器发版管理页。
- * 核心职责：查询/新增/编辑 adapter_release，保证应用上架与任务执行的发布准入数据可维护。
+ * 核心职责：以“应用下拉选择”的方式管理 adapter_release，减少手填错误。
  */
-import { onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { useMessage } from 'naive-ui'
 import DcSelect from '@/components/DcSelect.vue'
@@ -129,6 +175,16 @@ interface ReleaseItem {
   released_at: string | null
 }
 
+interface AdapterTemplate {
+  adapter_key: string
+  platform_code: string
+  display_name: string
+  description: string
+  default_version: string
+  latest_released_version: string | null
+  released_versions: string[]
+}
+
 interface SelectOption {
   value: string
   label: string
@@ -140,11 +196,20 @@ const adapterKeyword = ref('')
 const statusFilter = ref('')
 const showModal = ref(false)
 const editing = ref(false)
+const adapterTemplates = ref<AdapterTemplate[]>([])
+const adapterLoading = ref(false)
+const adapterOffset = ref(0)
+const adapterLimit = 20
+const adapterHasMore = ref(true)
+const adapterLastKeyword = ref('')
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+const versionOptions = ref<SelectOption[]>([])
+const selectedVersionOption = ref('')
 
 const statusOptions: SelectOption[] = [
   { value: 'draft', label: '草稿' },
   { value: 'testing', label: '测试中' },
-  { value: 'released', label: '已发版' },
+  { value: 'released', label: '已发布' },
   { value: 'deprecated', label: '已废弃' },
 ]
 
@@ -158,10 +223,21 @@ const form = ref({
   released_by: '',
 })
 
+const adapterOptions = computed<SelectOption[]>(() => {
+  return adapterTemplates.value.map((t) => ({
+    value: t.adapter_key,
+    label: `${t.display_name}（${t.adapter_key}）`,
+  }))
+})
+
+const selectedAdapterMeta = computed<AdapterTemplate | null>(() => {
+  return adapterTemplates.value.find((t) => t.adapter_key === form.value.adapter_key) || null
+})
+
 function statusLabel(status: ReleaseStatus) {
   if (status === 'draft') return '草稿'
   if (status === 'testing') return '测试中'
-  if (status === 'released') return '已发版'
+  if (status === 'released') return '已发布'
   return '已废弃'
 }
 
@@ -178,7 +254,96 @@ async function loadReleases() {
   releases.value = res.data.data || []
 }
 
-function openModal(row?: ReleaseItem) {
+async function loadAdapterTemplates(keyword = '', reset = true) {
+  if (adapterLoading.value) return
+  adapterLoading.value = true
+  try {
+    const normalizedKeyword = keyword.trim()
+    const nextOffset =
+      reset || normalizedKeyword !== adapterLastKeyword.value ? 0 : adapterOffset.value
+
+    const params: Record<string, string | number> = {
+      limit: adapterLimit,
+      offset: nextOffset,
+    }
+    if (normalizedKeyword) {
+      params.keyword = normalizedKeyword
+    }
+
+    const res = await axios.get('/api/v1/apps/available-adapters', { params })
+    const rows: AdapterTemplate[] = res.data.data || []
+
+    if (nextOffset === 0) {
+      adapterTemplates.value = rows
+    } else {
+      const merged = [...adapterTemplates.value, ...rows]
+      const seen = new Set<string>()
+      adapterTemplates.value = merged.filter((item) => {
+        if (seen.has(item.adapter_key)) return false
+        seen.add(item.adapter_key)
+        return true
+      })
+    }
+
+    adapterOffset.value = nextOffset + rows.length
+    adapterHasMore.value = rows.length === adapterLimit
+    adapterLastKeyword.value = normalizedKeyword
+  } finally {
+    adapterLoading.value = false
+  }
+}
+
+function onAdapterSearch(keyword: string) {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    loadAdapterTemplates(keyword, true)
+  }, 220)
+}
+
+function onAdapterReachEnd() {
+  if (!adapterHasMore.value) return
+  loadAdapterTemplates(adapterLastKeyword.value, false)
+}
+
+function buildVersionOptions(template: AdapterTemplate | null) {
+  if (!template) {
+    versionOptions.value = []
+    selectedVersionOption.value = ''
+    return
+  }
+
+  const versions = Array.from(
+    new Set([
+      ...(template.released_versions || []),
+      template.latest_released_version || '',
+      template.default_version || '',
+    ].filter(Boolean)),
+  )
+
+  versionOptions.value = versions.map((v) => ({ value: v, label: v }))
+
+  if (versions.length > 0) {
+    const preferred = template.latest_released_version || template.default_version
+    selectedVersionOption.value = preferred
+    form.value.version = preferred
+  } else {
+    selectedVersionOption.value = ''
+    form.value.version = template.default_version || ''
+  }
+}
+
+function onAdapterChange(value: string | number) {
+  form.value.adapter_key = String(value)
+  const template = adapterTemplates.value.find((t) => t.adapter_key === form.value.adapter_key) || null
+  buildVersionOptions(template)
+}
+
+function onVersionOptionChange(value: string | number) {
+  selectedVersionOption.value = String(value)
+  form.value.version = String(value)
+}
+
+async function openModal(row?: ReleaseItem) {
   if (!row) {
     editing.value = false
     form.value = {
@@ -190,8 +355,16 @@ function openModal(row?: ReleaseItem) {
       release_notes: '',
       released_by: '',
     }
+    adapterLastKeyword.value = ''
+    await loadAdapterTemplates('', true)
+    if (adapterTemplates.value.length > 0) {
+      form.value.adapter_key = adapterTemplates.value[0].adapter_key
+      onAdapterChange(form.value.adapter_key)
+    }
   } else {
     editing.value = true
+    adapterLastKeyword.value = row.adapter_key
+    await loadAdapterTemplates(row.adapter_key, true)
     form.value = {
       adapter_key: row.adapter_key,
       version: row.version,
@@ -201,14 +374,17 @@ function openModal(row?: ReleaseItem) {
       release_notes: row.release_notes || '',
       released_by: row.released_by || '',
     }
+    const template = adapterTemplates.value.find((t) => t.adapter_key === row.adapter_key) || null
+    buildVersionOptions(template)
+    selectedVersionOption.value = row.version
   }
   showModal.value = true
 }
 
-/** 保存发版记录。后端会根据 adapter_key+version 做 upsert。 */
+/** 保存发版记录，后端根据 adapter_key+version 做 upsert。 */
 async function submitRelease() {
   if (!form.value.adapter_key.trim()) {
-    message.warning('请填写适配器标识')
+    message.warning('请选择应用')
     return
   }
   if (!form.value.version.trim()) {
@@ -232,13 +408,17 @@ async function submitRelease() {
 watch(statusFilter, loadReleases)
 
 onMounted(loadReleases)
+
+onBeforeUnmount(() => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+})
 </script>
 
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; }
 .filters { display: flex; gap: 10px; align-items: center; }
 .search-input { width: 320px; max-width: 60vw; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.status-select { width: 180px; }
+.status-select { width: 100%; }
 .primary-btn {
   padding: 9px 16px;
   border: none;
@@ -324,6 +504,20 @@ th, td { padding: 12px 14px; border-bottom: 1px solid var(--border-light); font-
 .input:disabled { color: var(--text-secondary); background: var(--bg-subtle); }
 .textarea { min-height: 110px; resize: vertical; }
 .radio-group { display: flex; gap: 18px; padding: 10px 0; font-size: 14px; }
+
+.meta-box {
+  border: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.meta-key {
+  color: var(--text-secondary);
+}
 
 :deep(.status-select .dc-select) { width: 100%; display: flex; }
 :deep(.status-select .dc-select-trigger) {

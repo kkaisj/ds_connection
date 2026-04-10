@@ -195,5 +195,17 @@ async def retry_last_failed(task_id: int, session: AsyncSession = Depends(get_db
     session.add(run)
     await session.commit()
     await session.refresh(run)
+
+    # 异步执行重试任务（与手动执行保持一致）
+    import asyncio
+    from application.services.task_executor import execute_task_run
+    from config.database import async_session_factory
+
+    async def _run_in_background(run_id: int):
+        async with async_session_factory() as bg_session:
+            await execute_task_run(bg_session, run_id)
+
+    asyncio.create_task(_run_in_background(run.id))
+
     return {"code": 0, "message": "ok", "data": {"task_id": task_id, "run_id": run.id, "queued": True}}
 

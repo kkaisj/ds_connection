@@ -1,39 +1,35 @@
-<!--
-  DcSelect 自定义下拉选择器
-  替代浏览器原生 select，统一设计风格。
-  支持 v-model 双向绑定、placeholder、禁用状态。
-
-  用法:
-  <DcSelect v-model="value" :options="[{value:'a', label:'选项A'}]" placeholder="请选择" />
--->
-<template>
-  <div
-    class="dc-select"
-    :class="{ open: isOpen, disabled }"
-    ref="selectRef"
-  >
-    <!-- 触发区域 -->
+﻿<template>
+  <div class="dc-select" :class="{ open: isOpen, disabled }" ref="selectRef">
     <div class="dc-select-trigger" @click="toggle">
       <span class="dc-select-value" :class="{ placeholder: !selectedLabel }">
         {{ selectedLabel || placeholder }}
       </span>
       <span class="dc-select-arrow" :class="{ flipped: isOpen }">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"/>
+          <polyline points="6 9 12 15 18 9" />
         </svg>
       </span>
     </div>
 
-    <!-- 下拉面板 -->
     <Teleport to="body">
       <div
         v-if="isOpen"
         class="dc-select-dropdown"
         :style="dropdownStyle"
         ref="dropdownRef"
+        @scroll="handleDropdownScroll"
       >
+        <div v-if="searchable" class="dc-select-search-wrap">
+          <input
+            v-model="keyword"
+            class="dc-select-search"
+            :placeholder="searchPlaceholder"
+            @input="onKeywordInput"
+          />
+        </div>
+
         <div
-          v-for="opt in options"
+          v-for="opt in filteredOptions"
           :key="opt.value"
           class="dc-select-option"
           :class="{ active: modelValue === opt.value }"
@@ -42,56 +38,73 @@
           <span class="option-label">{{ opt.label }}</span>
           <span v-if="modelValue === opt.value" class="option-check">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"/>
+              <polyline points="20 6 9 17 4 12" />
             </svg>
           </span>
         </div>
+
+        <div v-if="loading" class="dc-select-loading">加载中...</div>
+        <div v-if="!loading && filteredOptions.length === 0" class="dc-select-empty">暂无可选项</div>
       </div>
     </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-/**
- * 自定义下拉选择器
- * - Teleport 到 body 避免被父容器 overflow 裁剪
- * - 点击外部自动关闭
- * - 选中项显示勾选图标
- */
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 
 interface Option {
   value: string | number
   label: string
 }
 
-const props = withDefaults(defineProps<{
-  modelValue: string | number
-  options: Option[]
-  placeholder?: string
-  disabled?: boolean
-}>(), {
-  placeholder: '请选择',
-  disabled: false,
-})
+const props = withDefaults(
+  defineProps<{
+    modelValue: string | number
+    options: Option[]
+    placeholder?: string
+    disabled?: boolean
+    searchable?: boolean
+    searchPlaceholder?: string
+    remoteSearch?: boolean
+    loading?: boolean
+  }>(),
+  {
+    placeholder: '请选择',
+    disabled: false,
+    searchable: false,
+    searchPlaceholder: '请输入关键字搜索',
+    remoteSearch: false,
+    loading: false,
+  },
+)
 
 const emit = defineEmits<{
   'update:modelValue': [value: string | number]
   change: [value: string | number]
+  search: [keyword: string]
+  reachEnd: []
 }>()
 
 const isOpen = ref(false)
 const selectRef = ref<HTMLElement>()
 const dropdownRef = ref<HTMLElement>()
 const dropdownStyle = ref<Record<string, string>>({})
+const keyword = ref('')
 
-/* ── 当前选中项的 label ── */
 const selectedLabel = computed(() => {
-  const opt = props.options.find(o => o.value === props.modelValue)
+  const opt = props.options.find((o) => o.value === props.modelValue)
   return opt?.label || ''
 })
 
-/* ── 计算下拉面板位置（相对于触发器） ── */
+const filteredOptions = computed(() => {
+  if (!props.searchable) return props.options
+  if (props.remoteSearch) return props.options
+  const kw = keyword.value.trim().toLowerCase()
+  if (!kw) return props.options
+  return props.options.filter((opt) => opt.label.toLowerCase().includes(kw))
+})
+
 function updatePosition() {
   if (!selectRef.value) return
   const rect = selectRef.value.getBoundingClientRect()
@@ -104,38 +117,49 @@ function updatePosition() {
   }
 }
 
-/* ── 打开/关闭 ── */
 function toggle() {
   if (props.disabled) return
   if (isOpen.value) {
     isOpen.value = false
     return
   }
-  // 先计算一次位置再打开，避免首次打开时面板短暂错位。
   updatePosition()
   isOpen.value = true
+  keyword.value = ''
+  emit('search', '')
   nextTick(updatePosition)
 }
 
-/* ── 选择 ── */
 function select(value: string | number) {
   emit('update:modelValue', value)
   emit('change', value)
   isOpen.value = false
 }
 
-/* ── 点击外部关闭 ── */
+function onKeywordInput() {
+  emit('search', keyword.value.trim())
+}
+
+function handleDropdownScroll(e: Event) {
+  const target = e.target as HTMLElement
+  const threshold = 24
+  if (target.scrollHeight - target.scrollTop - target.clientHeight <= threshold) {
+    emit('reachEnd')
+  }
+}
+
 function handleClickOutside(e: MouseEvent) {
   const target = e.target as Node
   if (
-    selectRef.value && !selectRef.value.contains(target) &&
-    dropdownRef.value && !dropdownRef.value.contains(target)
+    selectRef.value &&
+    !selectRef.value.contains(target) &&
+    dropdownRef.value &&
+    !dropdownRef.value.contains(target)
   ) {
     isOpen.value = false
   }
 }
 
-/** 下拉展开时，窗口尺寸或滚动变化都需要重算定位，避免面板漂移。 */
 function handleViewportChange() {
   if (!isOpen.value) return
   updatePosition()
@@ -146,6 +170,7 @@ onMounted(() => {
   window.addEventListener('resize', handleViewportChange)
   window.addEventListener('scroll', handleViewportChange, true)
 })
+
 onUnmounted(() => {
   document.removeEventListener('mousedown', handleClickOutside)
   window.removeEventListener('resize', handleViewportChange)
@@ -160,9 +185,11 @@ onUnmounted(() => {
   min-width: 120px;
 }
 
-.dc-select.disabled { opacity: 0.5; pointer-events: none; }
+.dc-select.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
 
-/* ── 触发器 ── */
 .dc-select-trigger {
   display: flex;
   align-items: center;
@@ -210,11 +237,10 @@ onUnmounted(() => {
 }
 </style>
 
-<!-- 下拉面板用全局样式（因为 Teleport 到 body） -->
 <style>
 .dc-select-dropdown {
-  background: var(--bg-base, #FDFBF7);
-  border: 1px solid var(--border, #E8E3DC);
+  background: var(--bg-base, #fdfbf7);
+  border: 1px solid var(--border, #e8e3dc);
   border-radius: 8px;
   box-shadow: 0 8px 30px rgba(45, 42, 38, 0.12), 0 2px 8px rgba(45, 42, 38, 0.06);
   padding: 4px;
@@ -224,8 +250,39 @@ onUnmounted(() => {
 }
 
 @keyframes dcDropIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dc-select-search-wrap {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  padding: 6px;
+  margin: -4px -4px 4px;
+  background: var(--bg-base, #fdfbf7);
+  border-bottom: 1px solid var(--border-light, #eee8e0);
+}
+
+.dc-select-search {
+  width: 100%;
+  border: 1px solid var(--border, #e8e3dc);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.dc-select-search:focus {
+  border-color: var(--accent-copper, #c8956c);
+  box-shadow: 0 0 0 2px rgba(200, 149, 108, 0.1);
 }
 
 .dc-select-option {
@@ -240,32 +297,52 @@ onUnmounted(() => {
 }
 
 .dc-select-option:hover {
-  background: var(--select-option-hover, #F7F1E8);
+  background: var(--select-option-hover, #f7f1e8);
 }
 
 .dc-select-option.active {
-  background: var(--accent-copper-bg, #FDF6EF);
+  background: var(--accent-copper-bg, #fdf6ef);
 }
 
 .dc-select-option .option-label {
   font-size: 13px;
   font-family: var(--font-body, 'DM Sans', -apple-system, sans-serif);
-  color: var(--text-primary, #2D2A26);
+  color: var(--text-primary, #2d2a26);
 }
 
 .dc-select-option.active .option-label {
-  color: var(--accent-copper, #C8956C);
+  color: var(--accent-copper, #c8956c);
   font-weight: 550;
 }
 
 .dc-select-option .option-check {
-  color: var(--accent-copper, #C8956C);
+  color: var(--accent-copper, #c8956c);
   display: flex;
   align-items: center;
 }
 
-/* 滚动条 */
-.dc-select-dropdown::-webkit-scrollbar { width: 4px; }
-.dc-select-dropdown::-webkit-scrollbar-track { background: transparent; }
-.dc-select-dropdown::-webkit-scrollbar-thumb { background: #E8E3DC; border-radius: 2px; }
+.dc-select-empty {
+  padding: 10px 12px;
+  color: var(--text-tertiary, #a49a8d);
+  font-size: 12px;
+}
+
+.dc-select-loading {
+  padding: 10px 12px;
+  color: var(--text-secondary, #7a7268);
+  font-size: 12px;
+}
+
+.dc-select-dropdown::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dc-select-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dc-select-dropdown::-webkit-scrollbar-thumb {
+  background: #e8e3dc;
+  border-radius: 2px;
+}
 </style>

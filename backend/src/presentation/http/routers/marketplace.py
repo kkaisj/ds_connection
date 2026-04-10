@@ -149,8 +149,7 @@ async def create_app(payload: CreateConnectorAppRequest, session: AsyncSession =
     if not adapter_meta:
         return {"code": 400, "message": "系统标识未注册", "data": None}
 
-    if adapter_meta["platform_code"] != payload.platform_code:
-        return {"code": 400, "message": "系统标识与平台不匹配", "data": None}
+    # 平台由业务侧手动选择，允许与注册平台不一致，后续可在应用管理中调整。
 
     key_exists = await session.scalar(
         select(func.count())
@@ -220,9 +219,23 @@ async def create_app(payload: CreateConnectorAppRequest, session: AsyncSession =
 
 
 @router.get("/available-adapters")
-async def list_available_adapters(session: AsyncSession = Depends(get_db)):
+async def list_available_adapters(
+    keyword: str | None = Query(None, description="按 adapter_key 或显示名称搜索"),
+    limit: int = Query(10, ge=1, le=100, description="返回数量，默认 10"),
+    offset: int = Query(0, ge=0, description="分页偏移量，默认 0"),
+    session: AsyncSession = Depends(get_db),
+):
     """查询已开发应用模板，并返回发版信息与已上架状态。"""
     templates = list_registered_adapter_templates()
+    if keyword:
+        kw = keyword.strip().lower()
+        templates = [
+            t
+            for t in templates
+            if kw in t["adapter_key"].lower() or kw in t["display_name"].lower()
+        ]
+    templates = sorted(templates, key=lambda t: t["adapter_key"])
+    templates = templates[offset : offset + limit]
 
     rows = (
         await session.execute(

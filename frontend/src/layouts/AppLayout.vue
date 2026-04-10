@@ -118,11 +118,18 @@ const todayStr = `${today.getFullYear()} 年 ${today.getMonth() + 1} 月 ${today
 
 const iconWrap = (icon: object) => () => h('div', { class: 'nav-icon' }, [h(icon as any)])
 
-const overviewNav = [
+interface NavItem {
+  path: string
+  label: string
+  icon: () => ReturnType<typeof h>
+  badge?: number
+}
+
+const overviewNav: NavItem[] = [
   { path: '/', label: '看板', icon: iconWrap(GridOutline) },
 ]
 
-const businessNav = [
+const businessNav: NavItem[] = [
   { path: '/marketplace', label: '连接市场', icon: iconWrap(GlobeOutline) },
   { path: '/app-management', label: '应用管理', icon: iconWrap(AppsOutline) },
   { path: '/release-management', label: '发版管理', icon: iconWrap(GitBranchOutline) },
@@ -131,13 +138,13 @@ const businessNav = [
   { path: '/accounts', label: '账号管理', icon: iconWrap(PeopleOutline) },
 ]
 
-const dataNav = [
+const dataNav: NavItem[] = [
   { path: '/executions', label: '执行记录', icon: iconWrap(DocumentTextOutline) },
   { path: '/storages', label: '存储管理', icon: iconWrap(ServerOutline) },
   { path: '/notifications', label: '消息通知', icon: iconWrap(NotificationsOutline) },
 ]
 
-const systemNav = [
+const systemNav: NavItem[] = [
   { path: '/settings', label: '系统设置', icon: iconWrap(SettingsOutline) },
 ]
 </script>
