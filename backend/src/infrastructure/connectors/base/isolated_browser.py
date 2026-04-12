@@ -106,9 +106,13 @@ def _resolve_default_entry_url() -> str:
     优先使用仓库内 `chrome/start.html`，找不到时回退到 `about:blank`。
     """
     repo_root = Path(__file__).resolve().parents[5]
-    start_html = repo_root / "chrome" / "start.html"
-    if start_html.exists():
-        return start_html.as_uri()
+    candidates = [
+        repo_root / "tools" / "chrome" / "start.html",
+        repo_root / "chrome" / "start.html",
+    ]
+    for start_html in candidates:
+        if start_html.exists():
+            return start_html.as_uri()
     return "about:blank"
 
 

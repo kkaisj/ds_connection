@@ -1,136 +1,326 @@
 <!--
   页面用途：
-  1. 提供“应用编排（登录 + 取数 + 上传）”的纯代码工作台。
-  2. 左侧编写三类代码：登录指令、取数指令、适配器编排。
-  3. 右侧完成参数测试运行、浏览器预览入口与结果日志查看。
+  1. 统一“应用开发 -> 编辑 -> 测试 -> 发版”在一个工作台完成。
+  2. 提供左侧目录树、中间多标签编辑器、右侧阶段与运行状态面板。
+  3. 严格执行发版门禁：测试 success=true 前不可发版。
 -->
 <template>
-  <div class="workbench-page">
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <input v-model="platformCode" class="name-input short" placeholder="一级平台，如 douyin" />
-        <input v-model="appSlug" class="name-input short" placeholder="应用标识，如 product_overview" />
-        <input v-model="previewUrl" class="name-input wide" placeholder="预览地址，如 https://www.baidu.com" />
+  <div class="workbench-root">
+    <header class="wb-header">
+      <div class="wb-title-wrap">
+        <h2>统一开发工作台</h2>
+        <span class="wb-sub">开发 / 测试 / 发版一体化</span>
       </div>
-      <div class="toolbar-right">
-        <button class="ghost-btn" @click="generateScaffold">生成三件套</button>
-        <button class="ghost-btn" @click="saveCurrentFile" :disabled="!activeFile">保存当前</button>
-        <button class="primary-btn" @click="runTest">测试运行</button>
+      <div class="wb-meta">
+        <input v-model="platformCode" class="head-input short" placeholder="一级平台，如 douyin" />
+        <input v-model="appSlug" class="head-input short" placeholder="应用标识，如 new_app" />
+        <input v-model="targetDir" class="head-input short" placeholder="目标目录(可选)，如 douyin/custom" />
+        <button class="btn ghost" @click="createScaffold">创建骨架</button>
+        <button class="btn ghost" @click="saveCurrentFile" :disabled="!activeTab">保存当前</button>
+        <button class="btn ghost" @click="saveAllFiles" :disabled="!openTabs.length">保存全部</button>
       </div>
-    </div>
+    </header>
 
-    <div class="main-grid">
-      <section class="card editor-panel">
-        <div class="panel-title">代码编辑区（登录 / 取数 / 适配器编排）</div>
-        <div class="part-tabs">
-          <button
-            v-for="part in partOptions"
-            :key="part.key"
-            class="part-tab"
-            :class="{ active: activePart === part.key }"
-            @click="activePart = part.key"
+    <section class="wb-main">
+      <aside class="wb-explorer">
+        <div class="pane-title explorer-title">
+          <span>应用目录树</span>
+          <div class="title-actions">
+            <button class="icon-btn icon-file-add" title="根目录新建文件" @click="createFile('')"></button>
+            <button class="icon-btn icon-folder-add" title="根目录新建目录" @click="createDirectory('')"></button>
+          </div>
+        </div>
+        <div class="tree">
+          <div
+            v-for="node in visibleNodes"
+            :key="node.path"
+            class="tree-node"
+            :class="{ active: activePath === node.path, dir: node.isDir }"
+            :style="{ paddingLeft: `${10 + node.depth * 16}px` }"
+            @mouseenter="hoveredPath = node.path"
+            @mouseleave="hoveredPath = ''"
+            @click="handleTreeClick(node)"
+            @contextmenu.prevent="openContextMenu($event, node)"
           >
-            <span>{{ part.label }}</span>
-            <span v-if="parts[part.key].dirty" class="dirty-dot"></span>
+            <span class="caret">{{ node.isDir ? (isExpanded(node.path) ? '▾' : '▸') : '' }}</span>
+            <span class="node-icon" :class="nodeIconClass(node.name, node.isDir)"></span>
+            <input
+              v-if="renameState.path === node.path"
+              ref="renameInputRef"
+              v-model="renameState.nameInput"
+              class="tree-inline-input"
+              @click.stop
+              @keydown.enter.stop.prevent="submitInlineRename"
+              @keydown.esc.stop.prevent="cancelInlineRename"
+            />
+            <span v-else class="node-name">{{ node.name }}</span>
+            <div v-if="hoveredPath === node.path || activePath === node.path" class="node-actions">
+              <button v-if="node.isDir" class="node-action-btn icon-file-add" title="新建文件" @click.stop="createFile(node.path)"></button>
+              <button v-if="node.isDir" class="node-action-btn icon-folder-add" title="新建目录" @click.stop="createDirectory(node.path)"></button>
+              <button class="node-action-btn icon-rename" title="重命名" @click.stop="renameNode(node.path)"></button>
+              <button class="node-action-btn danger icon-delete" title="删除" @click.stop="deleteNode(node.path)"></button>
+            </div>
+          </div>
+          <div
+            v-if="inlineCreate.visible"
+            class="tree-node creating"
+            :style="{ paddingLeft: `${10 + inlineCreateDepth * 16}px` }"
+          >
+            <span class="caret"></span>
+            <span class="node-icon" :class="inlineCreate.isDir ? 'folder' : 'py'"></span>
+            <input
+              ref="createInputRef"
+              v-model="inlineCreate.nameInput"
+              class="tree-inline-input"
+              :placeholder="inlineCreate.isDir ? '目录名' : '文件名(.py)'"
+              @keydown.enter.stop.prevent="submitInlineCreate"
+              @keydown.esc.stop.prevent="cancelInlineCreate"
+            />
+            <button class="node-action-btn" @click="submitInlineCreate">确定</button>
+            <button class="node-action-btn" @click="cancelInlineCreate">取消</button>
+          </div>
+          <div v-if="visibleNodes.length === 0" class="tree-empty">先创建骨架后开始开发</div>
+        </div>
+        <div
+          v-if="contextMenu.visible"
+          class="tree-context-menu"
+          :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+          @click.stop
+        >
+          <button v-if="contextMenu.targetIsDir" class="ctx-item" @click="createFile(contextMenu.targetPath)">新建文件</button>
+          <button v-if="contextMenu.targetIsDir" class="ctx-item" @click="createDirectory(contextMenu.targetPath)">新建目录</button>
+          <button class="ctx-item" @click="renameNode(contextMenu.targetPath)">重命名</button>
+          <button class="ctx-item danger" @click="deleteNode(contextMenu.targetPath)">删除</button>
+        </div>
+      </aside>
+
+      <main class="wb-editor">
+        <div class="tabs">
+          <button
+            v-for="tab in openTabs"
+            :key="tab.path"
+            class="tab"
+            :class="{ active: tab.path === activePath }"
+            @click="activateTab(tab.path)"
+          >
+            <span class="tab-icon" :class="nodeIconClass(tab.name, false)"></span>
+            <span class="tab-name">{{ tab.name }}</span>
+            <span v-if="tab.dirty" class="dirty-dot"></span>
+            <span class="tab-close" @click.stop="closeTab(tab.path)">×</span>
           </button>
+          <div v-if="openTabs.length === 0" class="tabs-empty">未打开文件</div>
         </div>
-        <div class="path-row">
-          <span class="label">当前文件：</span>
-          <span class="path">{{ activeFile?.relativePath || '未选择' }}</span>
+
+        <div class="path-bar">
+          <span class="path-text">{{ activeTab?.path || '请选择左侧文件' }}</span>
         </div>
+
         <textarea
+          v-if="activeTab"
           v-model="activeCode"
           class="editor"
           spellcheck="false"
-          placeholder="请先点击“生成三件套”，或从“我开发的指令”进入已有文件"
+          placeholder="在这里编写代码..."
         />
-      </section>
+        <div v-else class="editor-empty">请选择左侧文件开始编辑</div>
+      </main>
 
-      <section class="card side-panel">
-        <div class="panel-title">运行参数与浏览器预览</div>
+      <aside class="wb-side">
+        <div class="pane-title">阶段状态</div>
+        <div class="stage-list">
+          <div class="stage-item" :class="{ ok: stageStatus.dev }">开发中</div>
+          <div class="stage-item" :class="{ ok: stageStatus.tested }">测试通过</div>
+          <div class="stage-item" :class="{ ok: stageStatus.releasable }">可发版</div>
+          <div class="stage-item" :class="{ ok: stageStatus.released }">已发版</div>
+        </div>
+
+        <div class="pane-title top-gap">输入参数 input</div>
         <div class="form-grid">
-          <label class="field">
+          <label v-if="false" class="field">
             <span>账号</span>
-            <input v-model="runUsername" class="field-input" placeholder="测试账号（可选）" />
+            
           </label>
-          <label class="field">
+          <label v-if="false" class="field">
             <span>密码</span>
-            <input
-              v-model="runPassword"
-              class="field-input"
-              type="password"
-              placeholder="测试密码（可选）"
-            />
+            
           </label>
           <label class="field">
             <span>默认下载天数</span>
-            <input v-model.number="defaultDownloadDays" class="field-input" type="number" min="1" />
+            <input v-model.number="inputModel.default_download_days" class="field-input" type="number" min="1" />
           </label>
-          <label class="field checkbox-field">
-            <input v-model="realBrowser" type="checkbox" />
-            <span>真实浏览器模式（real_browser）</span>
+          <label class="field checkbox">
+            <input v-model="inputModel.runtime.real_browser" type="checkbox" />
+            <span>real_browser</span>
+          </label>
+          <label class="field full">
+            <span>页面参数 page_params (JSON)</span>
+            <textarea v-model="pageParamsJson" class="field-textarea" />
+          </label>
+          <label class="field full">
+            <span>account_config (JSON)</span>
+            <textarea v-model="accountConfigJson" class="field-textarea" />
+          </label>
+          <label class="field full">
+            <span>存储 storage (JSON)</span>
+            <textarea v-model="storageJson" class="field-textarea" />
+          </label>
+        </div>
+
+        <div class="side-actions">
+          <button class="btn primary" @click="runTest">测试运行</button>
+        </div>
+
+        <div class="pane-title top-gap">测试结果</div>
+        <div class="summary">
+          <span>状态：<b :class="runResult?.success ? 'ok-text' : 'warn-text'">{{ runStatusText }}</b></span>
+          <span>耗时：{{ runResult?.duration_ms ?? '-' }} ms</span>
+          <span>条数：{{ runResult?.rows_count ?? '-' }}</span>
+          <span>日期：{{ runResult?.start_date ?? '-' }} ~ {{ runResult?.end_date ?? '-' }}</span>
+        </div>
+        <div class="logs">
+          <div class="log-row" v-for="(log, idx) in runResult?.logs || []" :key="`${idx}-${log.time}`">
+            <div class="log-time">{{ log.time }}</div>
+            <div class="log-msg">{{ log.message }}</div>
+            <pre v-if="log.ext" class="log-ext">{{ jsonText(log.ext) }}</pre>
+          </div>
+          <div v-if="!runResult || !runResult.logs.length" class="empty-line">暂无日志</div>
+        </div>
+
+        <div class="pane-title top-gap">发版面板</div>
+        <div class="form-grid">
+          <label class="field">
+            <span>版本号</span>
+            <input v-model="releaseForm.version" class="field-input" placeholder="如 1.0.1" />
           </label>
           <label class="field">
-            <span>关键词（demo）</span>
-            <input v-model="runKeyword" class="field-input" placeholder="如：你好" />
+            <span>发布人</span>
+            <input v-model="releaseForm.released_by" class="field-input" placeholder="如 kun-kun" />
+          </label>
+          <label class="field full">
+            <span>Checksum</span>
+            <input v-model="releaseForm.checksum" class="field-input" />
+          </label>
+          <label class="field full">
+            <span>发布说明</span>
+            <textarea v-model="releaseForm.release_notes" class="field-textarea" />
           </label>
         </div>
-
-        <div class="preview-head">
-          <div class="preview-title">页面预览</div>
-          <a class="preview-link" :href="safePreviewUrl" target="_blank" rel="noreferrer">新窗口打开</a>
+        <div class="side-actions">
+          <button class="btn primary" :disabled="!canRelease" @click="releaseNow">发版</button>
         </div>
-        <iframe class="preview-frame" :src="safePreviewUrl" />
-      </section>
-    </div>
-
-    <section class="card result-panel">
-      <div class="panel-title">测试结果面板</div>
-      <div class="result-summary">
-        <span>状态：<b :class="runResult?.success ? 'ok' : 'editing'">{{ runResultStatus }}</b></span>
-        <span>耗时：{{ runResult?.duration_ms ?? '-' }} ms</span>
-        <span>条数：{{ runResult?.rows_count ?? '-' }}</span>
-        <span>日期范围：{{ runResult?.start_date ?? '-' }} ~ {{ runResult?.end_date ?? '-' }}</span>
-      </div>
-      <div class="result-logs">
-        <div class="log-title">执行日志</div>
-        <div v-if="!runResult || runResult.logs.length === 0" class="empty">暂无日志</div>
-        <div v-for="(log, idx) in runResult?.logs || []" :key="`${log.time}-${idx}`" class="log-row">
-          <span class="log-time">{{ log.time }}</span>
-          <span class="log-message">{{ log.message }}</span>
-        </div>
-      </div>
-      <div class="result-data">
-        <div class="log-title">返回数据预览（前 20 条）</div>
-        <pre class="result-json">{{ runResult ? jsonPreview(runResult.data_preview) : '[]' }}</pre>
-      </div>
+      </aside>
     </section>
+
+    <div v-if="actionModal.visible" class="action-modal-mask" @click.self="closeActionModal">
+      <div class="action-modal">
+        <div class="action-modal-header">
+          <h3>{{ actionModalTitle }}</h3>
+          <button class="modal-close" @click="closeActionModal">×</button>
+        </div>
+        <div class="action-modal-body">
+          <div class="modal-path">
+            目标：{{ (actionModal.type === 'create_dir' || actionModal.type === 'create_file') ? (sanitizeNodeName(actionModal.baseDir) || '/') : (actionModal.targetPath || '-') }}
+          </div>
+
+          <label v-if="actionModal.type !== 'delete'" class="field">
+            <span>{{ actionModalNameLabel }}</span>
+            <input
+              v-model="actionModal.nameInput"
+              class="field-input"
+              :placeholder="actionModalNamePlaceholder"
+              @keydown.enter.prevent="submitActionModal"
+            />
+          </label>
+
+          <label v-if="actionModal.type === 'create_dir' || actionModal.type === 'create_file'" class="field">
+            <span>创建位置（相对路径，留空为根目录）</span>
+            <input
+              v-model="actionModal.baseDir"
+              class="field-input"
+              placeholder="例如 collect_instructions/douyin"
+              @keydown.enter.prevent="submitActionModal"
+            />
+          </label>
+
+          <div v-if="actionModal.type === 'delete'" class="delete-check-box">
+            <div v-if="actionModal.loading" class="delete-check-item">正在检查关联状态...</div>
+            <div v-else-if="actionModal.deleteCheck" class="delete-check-list">
+              <div class="delete-check-item">已发版：{{ actionModal.deleteCheck.released_count }}</div>
+              <div class="delete-check-item">已上架：{{ actionModal.deleteCheck.listed_count }}</div>
+              <div class="delete-check-item">已连接任务：{{ actionModal.deleteCheck.task_count }}</div>
+              <div class="delete-check-item">
+                关联适配器：{{ actionModal.deleteCheck.adapter_keys.length ? actionModal.deleteCheck.adapter_keys.join('，') : '无' }}
+              </div>
+              <div
+                class="delete-check-tip"
+                :class="actionModal.deleteCheck.can_delete ? 'ok' : 'danger'"
+              >
+                {{ actionModal.deleteCheck.can_delete ? '可删除：未发现上架或任务连接。' : '不可删除：存在上架或连接任务，请先处理关联关系。' }}
+              </div>
+            </div>
+            <div v-else class="delete-check-item">未获取到删除检查结果</div>
+          </div>
+
+          <div v-if="actionModal.errorText" class="modal-error">{{ actionModal.errorText }}</div>
+        </div>
+        <div class="action-modal-footer">
+          <button class="btn ghost" :disabled="actionModal.submitting" @click="closeActionModal">取消</button>
+          <button
+            class="btn"
+            :class="actionModal.type === 'delete' ? 'danger-fill' : 'primary'"
+            :disabled="actionConfirmDisabled"
+            @click="submitActionModal"
+          >
+            {{ actionModal.submitting ? '处理中...' : actionModalConfirmText }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * 工作台核心逻辑：
- * 1. 维护“登录指令 / 取数指令 / 适配器编排”三类文件状态。
- * 2. 支持生成脚手架、读取已有文件、保存代码。
- * 3. 统一测试运行入口，复用后端 workbench run 接口。
+ * 统一工作台核心逻辑。
+ * 职责：
+ * 1. 维护目录树与多标签文件编辑状态。
+ * 2. 维护统一 input 对象并触发测试运行。
+ * 3. 基于测试快照控制发版门禁，测试通过后才允许发布。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useMessage } from 'naive-ui'
-import { useRoute } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
+import { useMessage } from 'naive-ui'
 
-type PartKey = 'adapter' | 'login' | 'collect'
+interface TreeNode {
+  name: string
+  path: string
+  isDir: boolean
+  depth: number
+}
 
-interface PartFile {
-  relativePath: string
+interface TreeBuilderNode {
+  name: string
+  path: string
+  isDir: boolean
+  depth: number
+  children: Map<string, TreeBuilderNode>
+}
+
+interface OpenTab {
+  name: string
+  path: string
   code: string
   dirty: boolean
+}
+
+interface InstructionRow {
+  relative_path: string
 }
 
 interface RunLog {
   time: string
   message: string
+  ext?: Record<string, unknown>
 }
 
 interface RunResult {
@@ -141,528 +331,1064 @@ interface RunResult {
   end_date: string
   logs: RunLog[]
   data_preview: Array<Record<string, unknown>>
+  runtime_init?: Record<string, unknown>
+  error_message?: string
+}
+
+type ActionType = 'create_dir' | 'create_file' | 'rename' | 'delete'
+
+interface DeleteCheckResult {
+  can_delete: boolean
+  adapter_keys: string[]
+  released_count: number
+  listed_count: number
+  task_count: number
+}
+
+interface InlineCreateState {
+  visible: boolean
+  isDir: boolean
+  parentPath: string
+  nameInput: string
+}
+
+interface RenameState {
+  path: string
+  isDir: boolean
+  nameInput: string
+}
+
+interface ContextMenuState {
+  visible: boolean
+  x: number
+  y: number
+  targetPath: string
+  targetIsDir: boolean
 }
 
 const message = useMessage()
-const route = useRoute()
 
 const platformCode = ref('douyin')
 const appSlug = ref('new_app')
-const previewUrl = ref('https://www.baidu.com')
-const activePart = ref<PartKey>('adapter')
-const loadingRun = ref(false)
-
-const runUsername = ref('')
-const runPassword = ref('')
-const defaultDownloadDays = ref(1)
-const realBrowser = ref(true)
-const runKeyword = ref('你好')
-
-const partOptions: Array<{ key: PartKey; label: string }> = [
-  { key: 'adapter', label: '应用编排（适配器）' },
-  { key: 'login', label: '登录指令' },
-  { key: 'collect', label: '取数指令' },
-]
-
-const parts = reactive<Record<PartKey, PartFile>>({
-  adapter: { relativePath: '', code: '', dirty: false },
-  login: { relativePath: '', code: '', dirty: false },
-  collect: { relativePath: '', code: '', dirty: false },
-})
-
+const targetDir = ref('')
+const activePath = ref('')
+const expandedDirs = ref<Set<string>>(new Set())
+const openTabs = ref<OpenTab[]>([])
 const runResult = ref<RunResult | null>(null)
+const releasedVersion = ref('')
+const instructionRows = ref<InstructionRow[]>([])
 
-const safePreviewUrl = computed(() => {
-  const value = previewUrl.value.trim()
-  if (!value) return 'about:blank'
-  if (value.startsWith('http://') || value.startsWith('https://')) return value
-  return `https://${value}`
-})
-
-const activeFile = computed(() => parts[activePart.value])
-
-const activeCode = computed({
-  get: () => activeFile.value?.code || '',
-  set: (val: string) => {
-    const file = activeFile.value
-    if (!file) return
-    file.code = val
-    file.dirty = true
+const inputModel = reactive({
+  credentials: { username: '', password: '' },
+  page_params: { keyword: '你好' as string },
+  account_config: {} as Record<string, unknown>,
+  default_download_days: 1,
+  runtime: { real_browser: true },
+  storage: {
+    type: 'mysql',
+    db_host: '127.0.0.1',
+    db_port: 3306,
+    db_user: 'root',
+    db_password: '',
+    db_name: 'dc_connection',
   },
 })
 
-const runResultStatus = computed(() => {
-  if (loadingRun.value) return '运行中'
+const pageParamsJson = ref(JSON.stringify(inputModel.page_params, null, 2))
+const accountConfigJson = ref(JSON.stringify(inputModel.account_config, null, 2))
+const storageJson = ref(JSON.stringify(inputModel.storage, null, 2))
+
+const releaseForm = reactive({
+  version: '1.0.0',
+  released_by: 'kun-kun',
+  checksum: '',
+  release_notes: '',
+})
+
+const actionModal = reactive({
+  visible: false,
+  type: 'create_dir' as ActionType,
+  nameInput: '',
+  targetPath: '',
+  targetIsDir: false,
+  baseDir: '',
+  submitting: false,
+  loading: false,
+  errorText: '',
+  deleteCheck: null as DeleteCheckResult | null,
+})
+const hoveredPath = ref('')
+const createInputRef = ref<HTMLInputElement | null>(null)
+const renameInputRef = ref<HTMLInputElement | null>(null)
+const inlineCreate = reactive<InlineCreateState>({
+  visible: false,
+  isDir: false,
+  parentPath: '',
+  nameInput: '',
+})
+const renameState = reactive<RenameState>({
+  path: '',
+  isDir: false,
+  nameInput: '',
+})
+const contextMenu = reactive<ContextMenuState>({
+  visible: false,
+  x: 0,
+  y: 0,
+  targetPath: '',
+  targetIsDir: false,
+})
+
+function appAdapterPath(): string {
+  const platform = platformCode.value.trim().toLowerCase()
+  const slug = appSlug.value.trim().toLowerCase().replace(/-/g, '_')
+  return `${platform}/${slug}.py`
+}
+
+function allFilePaths(): string[] {
+  return instructionRows.value.map((row) => row.relative_path)
+}
+
+/**
+ * 拉取“已开发指令/适配器”全量文件清单，目录树以真实文件为准，避免误以为文件被删除。
+ */
+async function loadInstructionRows(): Promise<void> {
+  const res = await axios.get('/api/v1/dev/instructions')
+  instructionRows.value = res.data?.data || []
+  const topDirs = new Set<string>()
+  for (const row of instructionRows.value) {
+    const root = String(row.relative_path || '').split('/')[0]
+    if (root) topDirs.add(root)
+  }
+  expandedDirs.value = topDirs
+}
+
+function sortTreeNodes(nodes: TreeBuilderNode[]): TreeBuilderNode[] {
+  return nodes.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
+function flattenTree(nodes: TreeBuilderNode[], output: TreeNode[]): void {
+  for (const node of sortTreeNodes(nodes)) {
+    output.push({
+      name: node.name,
+      path: node.path,
+      isDir: node.isDir,
+      depth: node.depth,
+    })
+    flattenTree(Array.from(node.children.values()), output)
+  }
+}
+
+const treeNodes = computed<TreeNode[]>(() => {
+  const roots = new Map<string, TreeBuilderNode>()
+  for (const path of allFilePaths()) {
+    const parts = path.split('/')
+    let currentPath = ''
+    let currentLevel = roots
+    parts.forEach((part, idx) => {
+      currentPath = currentPath ? `${currentPath}/${part}` : part
+      const isLeaf = idx === parts.length - 1
+      const existing = currentLevel.get(part)
+      if (existing) {
+        if (!isLeaf) currentLevel = existing.children
+        return
+      }
+      const created: TreeBuilderNode = {
+        name: part,
+        path: currentPath,
+        isDir: !isLeaf,
+        depth: idx,
+        children: new Map<string, TreeBuilderNode>(),
+      }
+      currentLevel.set(part, created)
+      if (!isLeaf) currentLevel = created.children
+    })
+  }
+
+  const output: TreeNode[] = []
+  flattenTree(Array.from(roots.values()), output)
+  return output
+})
+
+const visibleNodes = computed(() => {
+  return treeNodes.value.filter((node) => {
+    if (node.depth === 0) return true
+    const parents = node.path.split('/').slice(0, -1)
+    if (!parents.length) return true
+    let current = ''
+    for (const segment of parents) {
+      current = current ? `${current}/${segment}` : segment
+      if (!expandedDirs.value.has(current)) return false
+    }
+    return true
+  })
+})
+
+const activeTab = computed(() => openTabs.value.find((t) => t.path === activePath.value) || null)
+const activeCode = computed({
+  get: () => activeTab.value?.code || '',
+  set: (val: string) => {
+    const tab = activeTab.value
+    if (!tab) return
+    tab.code = val
+    tab.dirty = true
+  },
+})
+
+const stageStatus = computed(() => ({
+  dev: openTabs.value.length > 0,
+  tested: !!runResult.value?.success,
+  releasable: !!runResult.value?.success,
+  released: !!releasedVersion.value,
+}))
+
+const runStatusText = computed(() => {
   if (!runResult.value) return '未运行'
   return runResult.value.success ? '成功' : '失败'
 })
 
-function inferFromRelativePath(relativePath: string): void {
-  const normalized = relativePath.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  if (idx <= 0) return
-  const maybePlatform = normalized.slice(0, idx).split('/').pop() || ''
-  const filename = normalized.slice(idx + 1).replace('.py', '')
-  if (maybePlatform && !maybePlatform.includes('instructions')) {
-    platformCode.value = maybePlatform
-    appSlug.value = filename.replace(/_login$|_collect$/, '')
-  }
+const canRelease = computed(() => !!runResult.value?.success)
+
+const actionModalTitle = computed(() => {
+  if (actionModal.type === 'create_dir') return '新建目录'
+  if (actionModal.type === 'create_file') return '新建文件'
+  if (actionModal.type === 'rename') return '重命名'
+  return '删除确认'
+})
+
+const actionModalNameLabel = computed(() => {
+  if (actionModal.type === 'create_dir') return '目录名'
+  if (actionModal.type === 'create_file') return '文件名（.py）'
+  return '新名称'
+})
+
+const actionModalNamePlaceholder = computed(() => {
+  if (actionModal.type === 'create_dir') return '例如 douyin'
+  if (actionModal.type === 'create_file') return '例如 report_collect.py'
+  return '请输入新名称'
+})
+
+const actionModalConfirmText = computed(() => {
+  if (actionModal.type === 'delete') return '确认删除'
+  if (actionModal.type === 'rename') return '确认重命名'
+  return '确认'
+})
+
+const actionConfirmDisabled = computed(() => {
+  if (actionModal.submitting || actionModal.loading) return true
+  if (actionModal.type === 'delete') return !actionModal.deleteCheck?.can_delete
+  return !sanitizeNodeName(actionModal.nameInput)
+})
+
+const inlineCreateDepth = computed(() => {
+  if (!inlineCreate.parentPath) return 0
+  return inlineCreate.parentPath.split('/').filter(Boolean).length
+})
+
+function isExpanded(path: string): boolean {
+  return expandedDirs.value.has(path)
 }
 
-function fillPathsByConvention(): void {
-  const platform = platformCode.value.trim().toLowerCase()
-  const slug = appSlug.value.trim().toLowerCase().replace(/-/g, '_')
-  parts.adapter.relativePath = `${platform}/${slug}.py`
-  parts.login.relativePath = `login_instructions/${platform}/${slug}_login.py`
-  parts.collect.relativePath = `collect_instructions/${platform}/${slug}_collect.py`
+function nodeIconClass(name: string, isDir: boolean): string {
+  if (isDir) return 'folder'
+  if (name.endsWith('.py')) return 'py'
+  if (name.endsWith('.json')) return 'json'
+  if (name.endsWith('.md')) return 'md'
+  return 'file'
 }
 
-async function loadFile(part: PartKey): Promise<void> {
-  const path = parts[part].relativePath
-  if (!path) return
-  try {
-    const res = await axios.get('/api/v1/dev/instructions/content', {
-      params: { relative_path: path },
-    })
-    parts[part].code = res.data.data?.content || ''
-    parts[part].dirty = false
-  } catch {
-    parts[part].code = ''
-  }
+function activateTab(path: string): void {
+  activePath.value = path
 }
 
-async function generateScaffold(): Promise<void> {
-  const platform = platformCode.value.trim().toLowerCase()
-  const slug = appSlug.value.trim().toLowerCase().replace(/-/g, '_')
-  if (!platform || !slug) {
-    message.warning('请先输入一级平台和应用标识')
-    return
-  }
-  await axios.post('/api/v1/dev/instructions/workbench/scaffold', {
-    platform_code: platform,
-    app_slug: slug,
-    overwrite: false,
-  })
-  fillPathsByConvention()
-  await Promise.all([loadFile('adapter'), loadFile('login'), loadFile('collect')])
-  activePart.value = 'adapter'
-  message.success('已生成并加载应用三件套')
+function closeTab(path: string): void {
+  const idx = openTabs.value.findIndex((tab) => tab.path === path)
+  if (idx < 0) return
+  openTabs.value.splice(idx, 1)
+  if (activePath.value !== path) return
+  activePath.value = openTabs.value[idx]?.path || openTabs.value[idx - 1]?.path || ''
+}
+
+async function readFile(path: string): Promise<string> {
+  const res = await axios.get('/api/v1/dev/instructions/content', { params: { relative_path: path } })
+  return res.data?.data?.content || ''
 }
 
 /**
- * 保存单个文件内容到后端。
+ * 点击目录树节点：目录执行展开/收起，文件执行打开标签页。
  */
-async function savePart(part: PartKey): Promise<void> {
-  const file = parts[part]
-  if (!file.relativePath) return
-  await axios.put('/api/v1/dev/instructions/content', {
-    relative_path: file.relativePath,
-    content: file.code,
+async function handleTreeClick(node: TreeNode): Promise<void> {
+  closeContextMenu()
+  activePath.value = node.path
+  if (node.isDir) {
+    targetDir.value = node.path
+    const next = new Set(expandedDirs.value)
+    if (next.has(node.path)) {
+      next.delete(node.path)
+      // 收起父目录时同步移除所有子目录展开状态，避免“父目录收起但子文件仍可见”的错位问题。
+      for (const expandedPath of Array.from(next)) {
+        if (expandedPath.startsWith(`${node.path}/`)) next.delete(expandedPath)
+      }
+    } else {
+      next.add(node.path)
+    }
+    expandedDirs.value = next
+    return
+  }
+
+  const exists = openTabs.value.find((tab) => tab.path === node.path)
+  if (exists) return
+
+  const code = await readFile(node.path).catch(() => '')
+  openTabs.value.push({ name: node.name, path: node.path, code, dirty: false })
+}
+
+function findNode(path: string): TreeNode | null {
+  return treeNodes.value.find((node) => node.path === path) || null
+}
+
+function parentDir(path: string): string {
+  const parts = path.split('/').slice(0, -1)
+  return parts.join('/')
+}
+
+function sanitizeNodeName(name: string): string {
+  return name.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+}
+
+function resetActionModal(type: ActionType): void {
+  actionModal.visible = true
+  actionModal.type = type
+  actionModal.nameInput = ''
+  actionModal.targetPath = ''
+  actionModal.targetIsDir = false
+  actionModal.baseDir = ''
+  actionModal.submitting = false
+  actionModal.loading = false
+  actionModal.errorText = ''
+  actionModal.deleteCheck = null
+}
+
+function closeActionModal(): void {
+  actionModal.visible = false
+  actionModal.submitting = false
+  actionModal.loading = false
+  actionModal.errorText = ''
+}
+
+function closeContextMenu(): void {
+  contextMenu.visible = false
+}
+
+function openContextMenu(event: MouseEvent, node: TreeNode): void {
+  activePath.value = node.path
+  contextMenu.visible = true
+  contextMenu.x = event.clientX
+  contextMenu.y = event.clientY
+  contextMenu.targetPath = node.path
+  contextMenu.targetIsDir = node.isDir
+}
+
+function cancelInlineCreate(): void {
+  inlineCreate.visible = false
+  inlineCreate.nameInput = ''
+}
+
+function cancelInlineRename(): void {
+  renameState.path = ''
+  renameState.nameInput = ''
+}
+
+/**
+ * 目录树行内新建：贴近 VSCode 的资源管理器交互。
+ */
+async function createDirectory(parentPath?: string): Promise<void> {
+  const parent = sanitizeNodeName(parentPath ?? '')
+  closeContextMenu()
+  cancelInlineRename()
+  inlineCreate.visible = true
+  inlineCreate.isDir = true
+  inlineCreate.parentPath = parent
+  inlineCreate.nameInput = ''
+  if (parent) {
+    const next = new Set(expandedDirs.value)
+    next.add(parent)
+    expandedDirs.value = next
+  }
+  await nextTick()
+  createInputRef.value?.focus()
+}
+
+async function createFile(parentPath?: string): Promise<void> {
+  const parent = sanitizeNodeName(parentPath ?? '')
+  closeContextMenu()
+  cancelInlineRename()
+  inlineCreate.visible = true
+  inlineCreate.isDir = false
+  inlineCreate.parentPath = parent
+  inlineCreate.nameInput = ''
+  if (parent) {
+    const next = new Set(expandedDirs.value)
+    next.add(parent)
+    expandedDirs.value = next
+  }
+  await nextTick()
+  createInputRef.value?.focus()
+}
+
+async function submitInlineCreate(): Promise<void> {
+  const inputName = sanitizeNodeName(inlineCreate.nameInput)
+  if (!inputName || inputName.includes('/')) {
+    message.warning(inlineCreate.isDir ? '目录名不合法' : '文件名不合法')
+    return
+  }
+  const fileOrDirName = inlineCreate.isDir ? inputName : (inputName.endsWith('.py') ? inputName : `${inputName}.py`)
+  const parent = sanitizeNodeName(inlineCreate.parentPath)
+  const relativePath = parent ? `${parent}/${fileOrDirName}` : fileOrDirName
+  await axios.post('/api/v1/dev/workbench/fs/node', {
+    relative_path: relativePath,
+    is_dir: inlineCreate.isDir,
+    content: inlineCreate.isDir ? undefined : '',
   })
-  file.dirty = false
+  await loadInstructionRows()
+  activePath.value = relativePath
+  if (!inlineCreate.isDir) {
+    const code = await readFile(relativePath).catch(() => '')
+    openTabs.value.push({ name: fileOrDirName, path: relativePath, code, dirty: false })
+  } else {
+    const next = new Set(expandedDirs.value)
+    next.add(relativePath)
+    expandedDirs.value = next
+  }
+  cancelInlineCreate()
+  message.success(inlineCreate.isDir ? '目录已创建' : '文件已创建')
+}
+
+function remapTabsAfterRename(oldPath: string, newPath: string, isDir: boolean): void {
+  const mapped = openTabs.value.map((tab) => {
+    if (isDir) {
+      if (!tab.path.startsWith(`${oldPath}/`)) return tab
+      const suffix = tab.path.slice(oldPath.length)
+      return { ...tab, path: `${newPath}${suffix}` }
+    }
+    if (tab.path !== oldPath) return tab
+    return { ...tab, path: newPath, name: newPath.split('/').pop() || tab.name }
+  })
+  openTabs.value = mapped
+
+  if (isDir) {
+    if (activePath.value === oldPath || activePath.value.startsWith(`${oldPath}/`)) {
+      activePath.value = `${newPath}${activePath.value.slice(oldPath.length)}`
+    }
+  } else if (activePath.value === oldPath) {
+    activePath.value = newPath
+  }
+}
+
+async function renameNode(targetPath?: string): Promise<void> {
+  const path = targetPath || activePath.value
+  if (!path) {
+    message.warning('请先选中目录或文件')
+    return
+  }
+  const node = findNode(path)
+  if (!node) {
+    message.warning('未找到选中节点')
+    return
+  }
+  closeContextMenu()
+  cancelInlineCreate()
+  activePath.value = node.path
+  renameState.path = node.path
+  renameState.isDir = node.isDir
+  renameState.nameInput = node.name
+  await nextTick()
+  renameInputRef.value?.focus()
+}
+
+async function submitInlineRename(): Promise<void> {
+  if (!renameState.path) return
+  const node = findNode(renameState.path)
+  if (!node) {
+    cancelInlineRename()
+    return
+  }
+  const nextNameRaw = sanitizeNodeName(renameState.nameInput)
+  if (!nextNameRaw || nextNameRaw.includes('/')) {
+    message.warning('名称不合法')
+    return
+  }
+  const nextName = node.isDir ? nextNameRaw : (nextNameRaw.endsWith('.py') ? nextNameRaw : `${nextNameRaw}.py`)
+  const parent = parentDir(node.path)
+  const newPath = parent ? `${parent}/${nextName}` : nextName
+  if (newPath === node.path) {
+    cancelInlineRename()
+    return
+  }
+  await axios.patch('/api/v1/dev/workbench/fs/node', {
+    old_relative_path: node.path,
+    new_relative_path: newPath,
+  })
+  remapTabsAfterRename(node.path, newPath, node.isDir)
+  await loadInstructionRows()
+  activePath.value = newPath
+  cancelInlineRename()
+  message.success('重命名成功')
+}
+
+async function deleteNode(targetPath?: string): Promise<void> {
+  const path = targetPath || activePath.value
+  if (!path) {
+    message.warning('请先选中目录或文件')
+    return
+  }
+  const node = findNode(path)
+  if (!node) {
+    message.warning('未找到选中节点')
+    return
+  }
+  closeContextMenu()
+  resetActionModal('delete')
+  actionModal.targetPath = node.path
+  actionModal.targetIsDir = node.isDir
+  actionModal.loading = true
+  try {
+    const res = await axios.get('/api/v1/dev/workbench/fs/delete-check', {
+      params: { relative_path: node.path },
+    })
+    actionModal.deleteCheck = (res.data?.data || null) as DeleteCheckResult | null
+  } catch {
+    actionModal.errorText = '删除检查失败，请稍后重试'
+  } finally {
+    actionModal.loading = false
+  }
+}
+
+/**
+ * 统一提交目录树增删改操作，确保流程一致且可扩展。
+ */
+async function submitActionModal(): Promise<void> {
+  if (actionConfirmDisabled.value) return
+  actionModal.submitting = true
+  actionModal.errorText = ''
+  try {
+    if (actionModal.type === 'create_dir') {
+      const dirName = sanitizeNodeName(actionModal.nameInput)
+      if (!dirName || dirName.includes('/')) throw new Error('目录名不合法')
+      const baseDir = sanitizeNodeName(actionModal.baseDir)
+      if (baseDir.includes('..')) throw new Error('创建位置不合法')
+      const relativePath = baseDir ? `${baseDir}/${dirName}` : dirName
+      await axios.post('/api/v1/dev/workbench/fs/node', { relative_path: relativePath, is_dir: true })
+      await loadInstructionRows()
+      activePath.value = relativePath
+      targetDir.value = relativePath
+      const next = new Set(expandedDirs.value)
+      if (baseDir) next.add(baseDir)
+      next.add(relativePath)
+      expandedDirs.value = next
+      message.success('目录已创建')
+      closeActionModal()
+      return
+    }
+
+    if (actionModal.type === 'create_file') {
+      const inputName = sanitizeNodeName(actionModal.nameInput)
+      if (!inputName || inputName.includes('/')) throw new Error('文件名不合法')
+      const baseDir = sanitizeNodeName(actionModal.baseDir)
+      if (baseDir.includes('..')) throw new Error('创建位置不合法')
+      const fileName = inputName.endsWith('.py') ? inputName : `${inputName}.py`
+      const relativePath = baseDir ? `${baseDir}/${fileName}` : fileName
+      await axios.post('/api/v1/dev/workbench/fs/node', { relative_path: relativePath, is_dir: false, content: '' })
+      await loadInstructionRows()
+      const code = await readFile(relativePath).catch(() => '')
+      openTabs.value.push({ name: fileName, path: relativePath, code, dirty: false })
+      activePath.value = relativePath
+      if (baseDir) {
+        const next = new Set(expandedDirs.value)
+        next.add(baseDir)
+        expandedDirs.value = next
+      }
+      message.success('文件已创建')
+      closeActionModal()
+      return
+    }
+
+    if (actionModal.type === 'rename') {
+      const node = findNode(actionModal.targetPath)
+      if (!node) throw new Error('未找到选中节点')
+      const nextNameRaw = sanitizeNodeName(actionModal.nameInput)
+      if (!nextNameRaw || nextNameRaw.includes('/')) throw new Error('名称不合法')
+      const nextName = node.isDir ? nextNameRaw : (nextNameRaw.endsWith('.py') ? nextNameRaw : `${nextNameRaw}.py`)
+      const parent = parentDir(node.path)
+      const newPath = parent ? `${parent}/${nextName}` : nextName
+      if (newPath === node.path) {
+        closeActionModal()
+        return
+      }
+      await axios.patch('/api/v1/dev/workbench/fs/node', {
+        old_relative_path: node.path,
+        new_relative_path: newPath,
+      })
+      remapTabsAfterRename(node.path, newPath, node.isDir)
+      await loadInstructionRows()
+      activePath.value = newPath
+      message.success('重命名成功')
+      closeActionModal()
+      return
+    }
+
+    if (!actionModal.deleteCheck?.can_delete) throw new Error('当前节点存在上架或任务连接，禁止删除')
+    await axios.delete('/api/v1/dev/workbench/fs/node', {
+      params: { relative_path: actionModal.targetPath },
+    })
+    if (actionModal.targetIsDir) {
+      openTabs.value = openTabs.value.filter((tab) => !tab.path.startsWith(`${actionModal.targetPath}/`))
+    } else {
+      openTabs.value = openTabs.value.filter((tab) => tab.path !== actionModal.targetPath)
+    }
+    activePath.value = ''
+    await loadInstructionRows()
+    message.success('删除成功')
+    closeActionModal()
+  } catch (error: unknown) {
+    const text = error instanceof Error ? error.message : '操作失败'
+    actionModal.errorText = text
+    message.error(text)
+  } finally {
+    actionModal.submitting = false
+  }
+}
+
+async function saveFile(path: string, content: string): Promise<void> {
+  await axios.put('/api/v1/dev/workbench/file', {
+    relative_path: path,
+    content,
+  })
 }
 
 async function saveCurrentFile(): Promise<void> {
-  if (!activeFile.value?.relativePath) {
-    message.warning('当前没有可保存文件')
+  const tab = activeTab.value
+  if (!tab) {
+    message.warning('当前没有打开文件')
     return
   }
-  await savePart(activePart.value)
+  await saveFile(tab.path, tab.code)
+  tab.dirty = false
   message.success('当前文件已保存')
 }
 
-async function saveAllDirty(): Promise<void> {
-  const dirtyParts = partOptions
-    .map((p) => p.key)
-    .filter((key) => parts[key].relativePath && parts[key].dirty)
-  for (const part of dirtyParts) {
-    await savePart(part)
+async function saveAllFiles(): Promise<void> {
+  for (const tab of openTabs.value) {
+    if (!tab.dirty) continue
+    await saveFile(tab.path, tab.code)
+    tab.dirty = false
+  }
+  message.success('文件已全部保存')
+}
+
+function schemaTemplate(platform: string, slug: string): string {
+  return `"""
+输入输出 schema：${platform}/${slug}
+用途：
+1. 定义 input/output 结构，统一参数读取入口。
+"""
+
+from __future__ import annotations
+from typing import Any
+
+
+def build_input(credentials: dict[str, Any], app_params: dict[str, Any]) -> dict[str, Any]:
+    """构建统一 input 对象。"""
+    input_obj = dict(app_params.get("input") or {})
+    if input_obj:
+        return input_obj
+    return {
+        "credentials": credentials,
+        "page_params": dict(app_params.get("page_params") or {}),
+        "account_config": dict(app_params.get("account_config") or {}),
+        "default_download_days": int(app_params.get("default_download_days") or 1),
+        "runtime": {
+            "real_browser": bool(app_params.get("real_browser", True)),
+        },
+        "storage": dict(app_params.get("storage") or {}),
+    }
+`
+}
+
+function testsTemplate(platform: string, slug: string): string {
+  return `"""
+工作台应用最小测试：${platform}/${slug}
+用途：
+1. 验证应用文件可导入。
+"""
+
+from __future__ import annotations
+
+import importlib
+
+
+def test_import_app_main() -> None:
+    """最小可用性测试。"""
+    module_name = "infrastructure.connectors.${platform}.${slug}"
+    mod = importlib.import_module(module_name)
+    assert mod is not None
+`
+}
+
+/**
+ * 创建应用骨架，并补齐 schema/tests 两个规范文件。
+ */
+async function createScaffold(): Promise<void> {
+  const platform = platformCode.value.trim().toLowerCase()
+  const slug = appSlug.value.trim().toLowerCase().replace(/-/g, '_')
+  if (!platform || !slug) {
+    message.warning('请先填写一级平台和应用标识')
+    return
+  }
+
+  const res = await axios.post('/api/v1/dev/workbench/apps/create', {
+    platform_code: platform,
+    app_slug: slug,
+    target_dir: targetDir.value.trim() || null,
+    overwrite: false,
+  })
+  const createdFiles: string[] = res.data?.data?.files
+    ?.filter((item: { relative_path: string; created: boolean }) => item.created)
+    ?.map((item: { relative_path: string }) => item.relative_path) || []
+  const schemaPath = createdFiles.find((path) => path.startsWith('schema/') && path.endsWith(`/${slug}_schema.py`))
+  const testPath = createdFiles.find((path) => path.startsWith('tests/') && path.endsWith(`/test_${slug}.py`))
+  if (schemaPath) await saveFile(schemaPath, schemaTemplate(platform, slug))
+  if (testPath) await saveFile(testPath, testsTemplate(platform, slug))
+
+  await loadInstructionRows()
+  const nextExpanded = new Set(expandedDirs.value)
+  for (const path of createdFiles) {
+    const parts = path.split('/').slice(0, -1)
+    let cursor = ''
+    for (const part of parts) {
+      cursor = cursor ? `${cursor}/${part}` : part
+      nextExpanded.add(cursor)
+    }
+  }
+  expandedDirs.value = nextExpanded
+  message.success('应用骨架已生成')
+}
+
+function syncInputJson(): boolean {
+  try {
+    inputModel.page_params = JSON.parse(pageParamsJson.value || '{}')
+    inputModel.account_config = JSON.parse(accountConfigJson.value || '{}')
+    inputModel.storage = JSON.parse(storageJson.value || '{}')
+    inputModel.default_download_days = Math.max(Number(inputModel.default_download_days || 1), 1)
+    return true
+  } catch {
+    message.error('page_params / account_config / storage 不是合法 JSON')
+    return false
   }
 }
 
 /**
- * 触发工作台测试运行：
- * 1. 先保存脏文件，确保后端加载最新代码。
- * 2. 再按适配器文件路径执行 run 接口。
+ * 使用统一 input 模型触发测试运行。
  */
 async function runTest(): Promise<void> {
-  if (!parts.adapter.relativePath) {
-    message.warning('请先生成或加载适配器文件')
-    return
+  if (!syncInputJson()) return
+  await saveAllFiles()
+  const relativePath = activePath.value.endsWith('.py') ? activePath.value : appAdapterPath()
+  const input = {
+    page_params: inputModel.page_params,
+    account_config: inputModel.account_config,
+    default_download_days: inputModel.default_download_days,
+    runtime: inputModel.runtime,
+    storage: inputModel.storage,
   }
-  loadingRun.value = true
-  try {
-    await saveAllDirty()
-    const res = await axios.post('/api/v1/dev/instructions/workbench/run', {
-      relative_path: parts.adapter.relativePath,
-      credentials: {
-        username: runUsername.value,
-        password: runPassword.value,
-      },
-      app_params: {
-        default_download_days: defaultDownloadDays.value,
-        real_browser: realBrowser.value,
-        keyword: runKeyword.value || '你好',
-      },
-      extra: {
-        company_name: 'dc_connection',
-        platform_code: platformCode.value,
-        account_name: runUsername.value || 'workbench',
-      },
-    })
-    const data = res.data.data || {}
-    runResult.value = {
-      success: !!data.success,
-      rows_count: Number(data.rows_count || 0),
-      duration_ms: Number(data.duration_ms || 0),
-      start_date: String(data.start_date || ''),
-      end_date: String(data.end_date || ''),
-      logs: (data.logs || []) as RunLog[],
-      data_preview: (data.data_preview || []) as Array<Record<string, unknown>>,
-    }
-    if (runResult.value.success) {
-      message.success('测试运行完成')
-    } else {
-      message.error(data.error_message || '测试运行失败')
-    }
-  } catch (error: any) {
-    const msg = error?.response?.data?.message || '测试运行失败'
-    message.error(msg)
-  } finally {
-    loadingRun.value = false
-  }
+
+  const res = await axios.post('/api/v1/dev/workbench/run', {
+    relative_path: relativePath,
+    credentials: {},
+    app_params: {
+      ...inputModel.page_params,
+      default_download_days: inputModel.default_download_days,
+      real_browser: inputModel.runtime.real_browser,
+      storage: inputModel.storage,
+      input,
+    },
+    extra: {
+      company_name: 'dc_connection',
+      platform_code: platformCode.value,
+      account_name: 'workbench',
+    },
+  })
+  runResult.value = res.data?.data || null
+  if (runResult.value?.success) message.success('测试通过，可发版')
+  else message.error(runResult.value?.error_message || '测试失败')
 }
 
-function jsonPreview(value: unknown): string {
-  return JSON.stringify(value, null, 2)
+function jsonText(value: unknown): string {
+  return JSON.stringify(value ?? {}, null, 2)
 }
 
-onMounted(async () => {
-  const queryPath = String(route.query.relative_path || '').trim()
-  if (queryPath) {
-    inferFromRelativePath(queryPath)
-    fillPathsByConvention()
-    parts.adapter.relativePath = queryPath
-    await Promise.all([loadFile('adapter'), loadFile('login'), loadFile('collect')])
-    activePart.value = 'adapter'
+/**
+ * 触发发版：严格携带 test_snapshot，后端二次校验 success=true。
+ */
+async function releaseNow(): Promise<void> {
+  if (!runResult.value?.success) {
+    message.warning('请先测试通过再发版')
     return
   }
-  fillPathsByConvention()
+  const adapterKey = `${platformCode.value.trim().toLowerCase()}.${appSlug.value.trim().toLowerCase().replace(/-/g, '_')}`
+  await axios.post('/api/v1/apps/releases', {
+    adapter_key: adapterKey,
+    version: releaseForm.version.trim(),
+    status: 'released',
+    qa_passed: true,
+    checksum: releaseForm.checksum.trim() || null,
+    release_notes: releaseForm.release_notes.trim() || null,
+    released_by: releaseForm.released_by.trim() || null,
+    test_snapshot: {
+      success: runResult.value.success,
+      rows_count: runResult.value.rows_count,
+      duration_ms: runResult.value.duration_ms,
+      start_date: runResult.value.start_date,
+      end_date: runResult.value.end_date,
+      timestamp: new Date().toISOString(),
+    },
+  })
+  releasedVersion.value = releaseForm.version
+  message.success(`发版完成：${releaseForm.version}`)
+}
+
+function handleGlobalClick(): void {
+  closeContextMenu()
+}
+
+onMounted(() => {
+  window.addEventListener('click', handleGlobalClick)
+  loadInstructionRows().catch(() => {
+    message.error('加载开发文件列表失败')
+  })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', handleGlobalClick)
 })
 </script>
 
 <style scoped>
-.workbench-page {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.workbench-root { display: flex; flex-direction: column; gap: 12px; }
+.wb-header {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 10px; padding: 10px 12px;
 }
+.wb-title-wrap h2 { margin: 0; font-size: 20px; color: var(--text-primary); }
+.wb-sub { font-size: 12px; color: var(--text-tertiary); }
+.wb-meta { display: flex; align-items: center; gap: 8px; }
+.head-input { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--bg-base); color: var(--text-primary); }
+.head-input.short { width: 220px; }
 
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
+.wb-main { display: grid; grid-template-columns: 280px 1fr 420px; gap: 12px; }
+.wb-explorer, .wb-editor, .wb-side {
+  background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 10px; overflow: hidden;
 }
-
-.toolbar-left {
-  display: flex;
-  gap: 8px;
-  flex: 1;
-}
-
-.toolbar-right {
-  display: flex;
-  gap: 8px;
-}
-
-.name-input {
-  padding: 9px 12px;
+.wb-explorer { position: relative; }
+.pane-title { padding: 10px 12px; border-bottom: 1px solid var(--border-light); font-size: 13px; color: var(--text-secondary); font-weight: 600; }
+.explorer-title { display: flex; justify-content: space-between; align-items: center; }
+.title-actions { display: flex; gap: 6px; }
+.icon-btn {
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-base);
-  color: var(--text-primary);
-}
-
-.name-input.short {
-  width: 210px;
-}
-
-.name-input.wide {
-  flex: 1;
-  min-width: 280px;
-}
-
-.main-grid {
-  display: grid;
-  grid-template-columns: 1.35fr 1fr;
-  gap: 12px;
-}
-
-.card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-}
-
-.panel-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.part-tabs {
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px 0;
-}
-
-.part-tab {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
   background: var(--bg-subtle);
   color: var(--text-secondary);
-  padding: 7px 10px;
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
   cursor: pointer;
 }
-
-.part-tab.active {
-  border-color: var(--accent-copper);
-  background: var(--accent-copper-bg);
-  color: var(--text-primary);
-}
-
-.dirty-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #e08b43;
-}
-
-.path-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 10px 12px 0;
-}
-
-.path-row .label {
-  color: var(--text-tertiary);
+.icon-btn::before,
+.node-action-btn::before {
+  display: inline-block;
   font-size: 12px;
+  line-height: 1;
 }
+.icon-file-add::before { content: "⊕"; }
+.icon-folder-add::before { content: "▣"; }
+.icon-rename::before { content: "✎"; }
+.icon-delete::before { content: "✕"; }
+.top-gap { margin-top: 8px; border-top: 1px dashed var(--border-light); }
 
-.path-row .path {
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.editor {
-  width: calc(100% - 24px);
-  margin: 10px 12px 12px;
-  height: calc(100vh - 355px);
-  min-height: 420px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  resize: none;
-  outline: none;
-  padding: 12px;
-  box-sizing: border-box;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  background: #fffdf9;
-  color: #2d2a26;
-}
-
-.side-panel {
-  overflow: hidden;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  padding: 10px 12px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.field-input {
+.tree { max-height: calc(100vh - 230px); overflow: auto; padding: 6px 0; }
+.tree-node { display: flex; align-items: center; gap: 7px; min-height: 30px; padding-right: 10px; cursor: pointer; color: var(--text-secondary); }
+.tree-node:hover { background: var(--select-option-hover); }
+.tree-node.active { background: var(--accent-copper-bg); color: var(--text-primary); }
+.tree-node.creating { background: var(--accent-copper-bg); }
+.caret { width: 12px; text-align: center; color: var(--text-tertiary); }
+.node-icon { width: 12px; height: 12px; border-radius: 3px; background: #8ea4c0; }
+.node-icon.folder { background: #bb955f; }
+.node-icon.py { background: linear-gradient(135deg, #3776ab 0 52%, #ffd343 52% 100%); }
+.node-icon.json { background: #56b9ff; }
+.node-icon.md { background: #a58df6; }
+.tree-inline-input {
+  flex: 1;
+  min-width: 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-base);
+  border-radius: 6px;
+  background: #fffdf9;
   color: var(--text-primary);
-  padding: 8px 10px;
+  padding: 4px 6px;
+  font-size: 12px;
 }
+.node-actions { margin-left: auto; display: inline-flex; gap: 4px; }
+.node-action-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  border-radius: 5px;
+  min-width: 24px;
+  height: 22px;
+  font-size: 0;
+  cursor: pointer;
+}
+.node-action-btn.danger { border-color: #c67a64; color: #a44f36; }
+.tree-context-menu {
+  position: fixed;
+  min-width: 138px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  z-index: 110;
+}
+.ctx-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  border-radius: 6px;
+  padding: 7px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.ctx-item:hover { background: var(--select-option-hover); }
+.ctx-item.danger { color: #a44f36; }
+.tree-empty { padding: 14px; font-size: 12px; color: var(--text-tertiary); }
 
-.checkbox-field {
-  flex-direction: row;
+.tabs { display: flex; align-items: center; gap: 6px; overflow-x: auto; border-bottom: 1px solid var(--border-light); padding: 8px 10px; }
+.tab { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--bg-subtle); color: var(--text-secondary); border-radius: 8px; padding: 5px 8px; cursor: pointer; }
+.tab.active { border-color: var(--accent-copper); background: var(--accent-copper-bg); color: var(--text-primary); }
+.tab-icon { width: 10px; height: 10px; border-radius: 2px; background: #8ea4c0; }
+.tab-icon.py { background: linear-gradient(135deg, #3776ab 0 52%, #ffd343 52% 100%); }
+.tab-icon.json { background: #56b9ff; }
+.tab-icon.md { background: #a58df6; }
+.tab-name { max-width: 180px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tab-close { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; }
+.tab-close:hover { background: rgba(0, 0, 0, 0.08); }
+.dirty-dot { width: 6px; height: 6px; border-radius: 50%; background: #db8745; }
+.tabs-empty { color: var(--text-tertiary); font-size: 12px; padding: 2px 0; }
+
+.path-bar { padding: 8px 12px; border-bottom: 1px dashed var(--border-light); }
+.path-text { font-size: 12px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.editor { width: calc(100% - 24px); margin: 10px 12px 12px; min-height: calc(100vh - 310px); border: 1px solid var(--border-light); border-radius: 8px; padding: 10px; font-family: var(--font-mono); resize: none; background: #fffdf9; color: #2d2a26; }
+.editor-empty { padding: 14px; color: var(--text-tertiary); font-size: 12px; }
+
+.wb-side { padding-bottom: 10px; overflow: auto; max-height: calc(100vh - 170px); }
+.stage-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px; }
+.stage-item { border: 1px solid var(--border); border-radius: 8px; padding: 8px; text-align: center; color: var(--text-tertiary); background: var(--bg-subtle); font-size: 12px; }
+.stage-item.ok { color: #2b8a3e; border-color: #8fd0a0; background: #edf9f0; }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+.field.full { grid-column: 1 / -1; }
+.field-input, .field-textarea { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-base); color: var(--text-primary); padding: 7px 9px; }
+.field-textarea { min-height: 70px; font-family: var(--font-mono); }
+.field.checkbox { flex-direction: row; align-items: center; gap: 8px; padding-top: 20px; }
+
+.side-actions { padding: 0 12px 8px; }
+.btn { border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.btn.ghost { border: 1px solid var(--border); background: var(--bg-subtle); color: var(--text-secondary); }
+.btn.primary { border: 1px solid var(--accent-copper); background: linear-gradient(135deg, var(--accent-copper), #b88560); color: var(--text-inverse); }
+.btn.mini { padding: 5px 8px; font-size: 12px; }
+.btn.danger { border-color: #c67a64; color: #a44f36; }
+.btn.danger-fill { border: 1px solid #bf6d53; background: linear-gradient(135deg, #d27d62, #bf6d53); color: #fff; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.action-modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 16, 12, 0.52);
+  display: flex;
   align-items: center;
-  gap: 8px;
-  grid-column: 1 / -1;
+  justify-content: center;
+  z-index: 90;
 }
-
-.preview-head {
+.action-modal {
+  width: min(620px, calc(100vw - 40px));
+  border-radius: 12px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);
+}
+.action-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px 8px;
-}
-
-.preview-title {
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.preview-link {
-  color: var(--accent-copper);
-  text-decoration: none;
-  font-size: 12px;
-}
-
-.preview-frame {
-  width: calc(100% - 24px);
-  margin: 0 12px 12px;
-  height: 330px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  background: #fff;
-}
-
-.result-panel {
-  min-height: 240px;
-}
-
-.result-summary {
-  display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
-  padding: 10px 12px;
   border-bottom: 1px solid var(--border-light);
-  font-size: 12.5px;
-  color: var(--text-secondary);
+  padding: 12px 14px;
 }
-
-.result-logs,
-.result-data {
-  padding: 10px 12px;
-}
-
-.log-title {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  margin-bottom: 8px;
-}
-
-.log-row {
-  display: grid;
-  grid-template-columns: 170px 1fr;
-  gap: 8px;
-  padding: 6px 0;
-  border-top: 1px solid var(--border-light);
-  font-size: 12px;
-}
-
-.log-time {
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-}
-
-.log-message {
+.action-modal-header h3 {
+  margin: 0;
+  font-size: 16px;
   color: var(--text-primary);
 }
-
-.result-json {
-  margin: 0;
+.modal-close {
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.action-modal-body { padding: 12px 14px; display: grid; gap: 10px; }
+.modal-path { font-size: 12px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.delete-check-box {
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
   background: #faf8f4;
   padding: 10px;
-  max-height: 240px;
-  overflow: auto;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: #2d2a26;
+}
+.delete-check-list { display: grid; gap: 6px; }
+.delete-check-item { font-size: 12px; color: var(--text-secondary); }
+.delete-check-tip { margin-top: 4px; font-size: 12px; font-weight: 600; }
+.delete-check-tip.ok { color: #2b8a3e; }
+.delete-check-tip.danger { color: #b45e3b; }
+.modal-error { color: #b45e3b; font-size: 12px; }
+.action-modal-footer {
+  padding: 0 14px 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
-.primary-btn {
-  padding: 9px 14px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--accent-copper), #b88560);
-  color: var(--text-inverse);
-  cursor: pointer;
-}
+.summary { padding: 8px 12px; display: grid; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+.ok-text { color: #2b8a3e; }
+.warn-text { color: #b45e3b; }
+.logs { padding: 0 12px 8px; max-height: 220px; overflow: auto; }
+.log-row { border-top: 1px solid var(--border-light); padding: 7px 0; }
+.log-time { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.log-msg { font-size: 12px; color: var(--text-primary); margin-top: 3px; }
+.log-ext { margin: 6px 0 0; padding: 6px; border-radius: 6px; border: 1px solid var(--border-light); background: #faf8f4; font-size: 11px; color: var(--text-secondary); max-height: 90px; overflow: auto; font-family: var(--font-mono); }
+.empty-line { padding: 8px 0; color: var(--text-tertiary); font-size: 12px; }
 
-.ghost-btn {
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
-  color: var(--text-secondary);
-  cursor: pointer;
+@media (max-width: 1440px) {
+  .wb-main { grid-template-columns: 260px 1fr 380px; }
 }
-
-.ghost-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.ok {
-  color: #2b8a3e;
-}
-
-.editing {
-  color: #b45e3b;
-}
-
-.empty {
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-
 @media (max-width: 1200px) {
-  .main-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .editor {
-    min-height: 360px;
-    height: 360px;
-  }
-}
-
-@media (max-width: 980px) {
-  .toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .toolbar-left {
-    flex-direction: column;
-  }
-
-  .name-input.short,
-  .name-input.wide {
-    width: 100%;
-  }
-
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
+  .wb-main { grid-template-columns: 1fr; }
+  .editor { min-height: 360px; }
+  .wb-side { max-height: none; }
 }
 </style>

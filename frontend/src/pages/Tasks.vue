@@ -145,6 +145,13 @@
               <label>存储配置</label>
               <DcSelect v-model="storageDraftId" :options="storageOptions" />
             </div>
+            <div v-if="currentStorageSummary" class="form-row">
+              <label>当前存储详情</label>
+              <div class="storage-summary">
+                <div class="storage-title">{{ currentStorageSummary.name }} ({{ currentStorageSummary.type }})</div>
+                <pre class="storage-config-json">{{ jsonPreview(currentStorageSummary.config) }}</pre>
+              </div>
+            </div>
             <button class="save-btn" @click="saveStorage">保存存储配置</button>
           </section>
 
@@ -191,6 +198,7 @@
                     <td>
                       <span class="log-level">{{ log.level }}</span>
                       <span class="log-message">{{ log.step }} - {{ log.message }}</span>
+                      <pre v-if="log.ext" class="log-ext-json">{{ jsonPreview(log.ext) }}</pre>
                     </td>
                   </tr>
                   <tr v-if="filteredRunLogs.length === 0">
@@ -238,13 +246,6 @@ interface TaskItem {
   last_run_status: string | null
 }
 
-interface StorageOptionItem {
-  id: number
-  name: string
-  type: string
-  status: string
-}
-
 interface RunItem {
   id: number
   status: string
@@ -256,6 +257,30 @@ interface RunLogItem {
   level: string
   message: string
   ts: string | null
+  ext?: Record<string, unknown> | null
+}
+
+interface SidebarPayload {
+  params: {
+    default_download_days: number
+    extra_params: Record<string, unknown>
+  }
+  storage: {
+    current_storage_id: number
+    current_storage: {
+      id: number
+      name: string
+      type: string
+      status: string
+      config: Record<string, unknown>
+    } | null
+    options: Array<{ id: number; name: string; type: string; status: string }>
+  }
+  logs: {
+    runs: RunItem[]
+    selected_run_id: number | null
+    items: RunLogItem[]
+  }
 }
 
 const message = useMessage()
@@ -309,6 +334,7 @@ const paramsDraft = ref({
 })
 const storageOptions = ref<Array<{ value: number; label: string }>>([])
 const storageDraftId = ref<number>(0)
+const currentStorageSummary = ref<{ name: string; type: string; config: Record<string, unknown> } | null>(null)
 const triggerDraft = ref({
   cron_expr: '',
   status: 'enabled',
@@ -367,6 +393,10 @@ function formatTime(iso: string) {
   return iso.replace('T', ' ').substring(0, 19)
 }
 
+function jsonPreview(value: unknown) {
+  return JSON.stringify(value ?? {}, null, 2)
+}
+
 async function loadTasks() {
   const params: Record<string, string> = {}
   if (keyword.value) params.keyword = keyword.value
@@ -413,12 +443,15 @@ function openDrawer(task: TaskItem) {
   drawerVisible.value = true
   activeTab.value = 'params'
   hydrateDraft(task)
-  loadStorageOptions()
+  loadSidebarData(task.id).catch(() => {
+    message.error('加载侧边栏数据失败')
+  })
 }
 
 function closeDrawer() {
   drawerVisible.value = false
   selectedTask.value = null
+  currentStorageSummary.value = null
   runList.value = []
   runLogs.value = []
   selectedRunId.value = 0
@@ -443,12 +476,41 @@ function hydrateDraft(task: TaskItem) {
   }
 }
 
-async function loadStorageOptions() {
-  const res = await axios.get('/api/v1/storages')
-  const data = (res.data.data || []) as StorageOptionItem[]
-  storageOptions.value = data
+async function loadSidebarData(taskId: number) {
+  const res = await axios.get(`/api/v1/tasks/${taskId}/sidebar`)
+  const data = (res.data.data || {}) as SidebarPayload
+
+  paramsDraft.value.default_download_days = Math.max(
+    Number(data.params?.default_download_days || 1),
+    1,
+  )
+  paramsDraft.value.extra_json = JSON.stringify(data.params?.extra_params || {}, null, 2)
+
+  storageOptions.value = (data.storage?.options || [])
     .filter((row) => row.status === 'active')
     .map((row) => ({ value: row.id, label: `${row.name} (${row.type})` }))
+  storageDraftId.value = Number(data.storage?.current_storage_id || 0)
+  currentStorageSummary.value = data.storage?.current_storage
+    ? {
+        name: data.storage.current_storage.name,
+        type: data.storage.current_storage.type,
+        config: data.storage.current_storage.config || {},
+      }
+    : null
+
+  runList.value = (data.logs?.runs || []).map((r) => ({
+    id: r.id,
+    status: r.status,
+    started_at: r.started_at,
+  }))
+  selectedRunId.value = Number(data.logs?.selected_run_id || 0)
+  runLogs.value = (data.logs?.items || []).map((item) => ({
+    step: item.step,
+    level: item.level,
+    message: item.message,
+    ts: item.ts,
+    ext: item.ext || null,
+  }))
 }
 
 async function switchTab(tab: 'params' | 'storage' | 'trigger' | 'logs') {
@@ -467,16 +529,17 @@ async function saveParams() {
     message.error('页面参数 JSON 格式错误')
     return
   }
-  await axios.patch(`/api/v1/tasks/${selectedTask.value.id}`, {
-    params: {
-      ...extra,
-      default_download_days: Math.max(Number(paramsDraft.value.default_download_days || 1), 1),
-    },
+  await axios.patch(`/api/v1/tasks/${selectedTask.value.id}/sidebar/params`, {
+    default_download_days: Math.max(Number(paramsDraft.value.default_download_days || 1), 1),
+    extra_params: extra,
   })
   message.success('参数已保存')
   await loadTasks()
   const latest = tasks.value.find((t) => t.id === selectedTask.value?.id)
-  if (latest) selectedTask.value = latest
+  if (latest) {
+    selectedTask.value = latest
+    await loadSidebarData(latest.id)
+  }
 }
 
 const dateRangePreview = computed(() => {
@@ -492,11 +555,16 @@ const dateRangePreview = computed(() => {
 
 async function saveStorage() {
   if (!selectedTask.value) return
-  await axios.patch(`/api/v1/tasks/${selectedTask.value.id}`, { storage_config_id: storageDraftId.value })
+  await axios.patch(`/api/v1/tasks/${selectedTask.value.id}/sidebar/storage`, {
+    storage_config_id: storageDraftId.value,
+  })
   message.success('存储配置已保存')
   await loadTasks()
   const latest = tasks.value.find((t) => t.id === selectedTask.value?.id)
-  if (latest) selectedTask.value = latest
+  if (latest) {
+    selectedTask.value = latest
+    await loadSidebarData(latest.id)
+  }
 }
 
 async function saveTrigger() {
@@ -514,20 +582,7 @@ async function saveTrigger() {
 async function loadRunsForTask() {
   if (!selectedTask.value) return
   logKeyword.value = ''
-  const res = await axios.get('/api/v1/task-runs', {
-    params: { task_id: selectedTask.value.id, limit: 20, offset: 0 },
-  })
-  runList.value = (res.data.data || []).map((r: any) => ({
-    id: r.id,
-    status: r.status,
-    started_at: r.started_at,
-  }))
-  if (runList.value.length > 0) {
-    await selectRun(runList.value[0].id)
-  } else {
-    selectedRunId.value = 0
-    runLogs.value = []
-  }
+  await loadSidebarData(selectedTask.value.id)
 }
 
 function handleRunChange(runId: number | string) {
@@ -537,8 +592,11 @@ function handleRunChange(runId: number | string) {
 }
 
 async function selectRun(runId: number) {
+  if (!selectedTask.value) return
   selectedRunId.value = runId
-  const res = await axios.get(`/api/v1/task-runs/${runId}/logs`)
+  const res = await axios.get(`/api/v1/tasks/${selectedTask.value.id}/sidebar/logs`, {
+    params: { run_id: runId },
+  })
   runLogs.value = res.data.data?.items || []
 }
 
@@ -795,6 +853,25 @@ onMounted(loadTasks)
   font-family: var(--font-mono);
   line-height: 1.5;
 }
+.storage-summary {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #faf8f4;
+  padding: 10px;
+}
+.storage-title {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.storage-config-json {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
 .mt8 { margin-top: 8px; }
 .save-btn {
   width: fit-content;
@@ -840,6 +917,18 @@ onMounted(loadTasks)
 .time-col { width: 220px; }
 .log-level { color: var(--accent-copper); font-weight: 600; margin-right: 8px; }
 .log-message { color: var(--text-primary); }
+.log-ext-json {
+  margin: 8px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  background: #faf8f4;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  max-height: 140px;
+  overflow: auto;
+}
 
 @media (max-width: 960px) {
   .log-toolbar { grid-template-columns: 1fr; }

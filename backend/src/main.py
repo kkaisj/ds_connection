@@ -16,6 +16,7 @@ from presentation.http.routers import (
     notifications,
     storages,
     tasks,
+    workbench,
 )
 
 
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(storages.router, prefix="/api/v1/storages", tags=["storages"])
     app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
     app.include_router(dev_instructions.router, prefix="/api/v1/dev/instructions", tags=["dev"])
+    app.include_router(workbench.router, prefix="/api/v1/dev/workbench", tags=["workbench"])
 
     return app
 

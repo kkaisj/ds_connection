@@ -36,7 +36,8 @@ class BaseWebDataAdapter(BaseAdapter):
         app_params = params or {}
         execution_context = self._build_context_from_legacy(credentials, app_params)
         context = await self.create_context(execution_context, app_params)
-        await self.ensure_login(context, execution_context, app_params)
+        if not bool(app_params.get("workbench_collect_only", False)):
+            await self.ensure_login(context, execution_context, app_params)
         rows = await self.collect_rows(context, execution_context, app_params)
         return AdapterResult(success=True, rows_count=len(rows), data=rows)
 
@@ -50,7 +51,8 @@ class BaseWebDataAdapter(BaseAdapter):
         """
         params = app_params or {}
         context = await self.create_context(execution_context, params)
-        await self.ensure_login(context, execution_context, params)
+        if not bool(params.get("workbench_collect_only", False)):
+            await self.ensure_login(context, execution_context, params)
         rows = await self.collect_rows(context, execution_context, params)
         return AdapterResult(success=True, rows_count=len(rows), data=rows)
 

@@ -134,7 +134,6 @@ const businessNav: NavItem[] = [
   { path: '/app-management', label: '应用管理', icon: iconWrap(AppsOutline) },
   { path: '/release-management', label: '发版管理', icon: iconWrap(GitBranchOutline) },
   { path: '/adapter-workbench', label: '适配器工作台', icon: iconWrap(CodeSlashOutline) },
-  { path: '/my-instructions', label: '我开发的指令', icon: iconWrap(CodeSlashOutline) },
   { path: '/tasks', label: '连接任务', icon: iconWrap(BarChartOutline), badge: 3 },
   { path: '/accounts', label: '账号管理', icon: iconWrap(PeopleOutline) },
 ]

@@ -4,6 +4,7 @@
 """
 
 from datetime import datetime
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -75,6 +76,7 @@ class UpsertAdapterReleaseRequest(BaseModel):
     checksum: str | None = Field(None, max_length=128, description="发布包校验值")
     release_notes: str | None = Field(None, max_length=1000, description="发布说明")
     released_by: str | None = Field(None, max_length=64, description="发布人")
+    test_snapshot: dict | None = Field(None, description="工作台测试快照，发版门禁依赖该字段")
 
 
 def _extract_app_meta(app: ConnectorApp) -> dict:
@@ -95,6 +97,14 @@ def _extract_app_meta(app: ConnectorApp) -> dict:
 
 def _serialize_release(release: AdapterRelease) -> dict:
     """统一序列化发版记录，避免多个接口字段漂移。"""
+    test_snapshot = None
+    if release.release_notes and "[test_snapshot]" in release.release_notes:
+        raw = release.release_notes.split("[test_snapshot]", 1)[-1].strip()
+        try:
+            test_snapshot = json.loads(raw)
+        except Exception:
+            test_snapshot = None
+
     adapter_meta = get_adapter_meta(release.adapter_key) or {}
     return {
         "id": release.id,
@@ -105,6 +115,7 @@ def _serialize_release(release: AdapterRelease) -> dict:
         "qa_passed": release.qa_passed,
         "checksum": release.checksum,
         "release_notes": release.release_notes,
+        "test_snapshot": test_snapshot,
         "released_by": release.released_by,
         "released_at": release.released_at.isoformat() if release.released_at else None,
         "created_at": release.created_at.isoformat() if release.created_at else None,
@@ -328,6 +339,12 @@ async def upsert_release(payload: UpsertAdapterReleaseRequest, session: AsyncSes
     if not adapter_meta:
         return {"code": 400, "message": "系统标识未注册", "data": None}
 
+    # 发版门禁：发布状态必须携带 success=true 的测试快照。
+    if payload.status == "released":
+        snapshot = payload.test_snapshot or {}
+        if not bool(snapshot.get("success")):
+            return {"code": 400, "message": "发版前必须先测试通过（success=true）", "data": None}
+
     release = await session.scalar(
         select(AdapterRelease).where(
             AdapterRelease.adapter_key == adapter_key,
@@ -342,7 +359,11 @@ async def upsert_release(payload: UpsertAdapterReleaseRequest, session: AsyncSes
     release.status = payload.status
     release.qa_passed = payload.qa_passed
     release.checksum = payload.checksum.strip() if payload.checksum else None
-    release.release_notes = payload.release_notes.strip() if payload.release_notes else None
+    release_notes = payload.release_notes.strip() if payload.release_notes else ""
+    if payload.test_snapshot:
+        snapshot_text = json.dumps(payload.test_snapshot, ensure_ascii=False)
+        release_notes = f"{release_notes}\n[test_snapshot]{snapshot_text}".strip()
+    release.release_notes = (release_notes[:1000] if release_notes else None)
     release.released_by = payload.released_by.strip() if payload.released_by else None
     release.released_at = datetime.now() if payload.status == "released" else None
 

@@ -46,15 +46,29 @@ class DemoBaiduSearchCollectInstruction(BaseCollectInstruction):
         _ = app_params
         return [
             {
-                "action": "baidu_search",
-                "keyword": keyword,
-                "executed_at": now,
-                "mode": "real_browser" if real_browser else "simulated",
-                "default_download_days": execution_context.default_download_days,
-                "start_date": context.get("start_date"),
-                "end_date": context.get("end_date"),
-                "operator": execution_context.credentials.get("username", ""),
-                "note": "已执行“打开百度 -> 输入关键词 -> 回车”流程",
+                "数据集": "演示_百度搜索_你好",
+                "文件路径": "",
+                "待插入字段": [
+                    [
+                        "RPA日期",
+                        "RPA关键词",
+                        "RPA执行模式",
+                        "RPA执行时间",
+                        "RPA操作人",
+                        "RPA开始日期",
+                        "RPA结束日期",
+                    ],
+                    [
+                        str(context.get("end_date") or ""),
+                        keyword,
+                        "real_browser" if real_browser else "simulated",
+                        now,
+                        str(execution_context.credentials.get("username", "")),
+                        str(context.get("start_date") or ""),
+                        str(context.get("end_date") or ""),
+                    ],
+                ],
+                "去重主键": ["RPA日期", "RPA关键词", "RPA执行模式"],
             }
         ]
 

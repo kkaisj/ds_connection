@@ -295,6 +295,95 @@ paths:
               schema:
                 $ref: "#/components/schemas/RunTriggerResponse"
 
+  /api/v1/tasks/{id}/sidebar:
+    get:
+      tags: [tasks]
+      summary: 获取任务侧边栏联动数据（参数/存储/日志）
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskSidebarResponse"
+
+  /api/v1/tasks/{id}/sidebar/params:
+    patch:
+      tags: [tasks]
+      summary: 保存任务侧边栏参数配置
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskSidebarParamsRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+
+  /api/v1/tasks/{id}/sidebar/storage:
+    patch:
+      tags: [tasks]
+      summary: 保存任务侧边栏存储配置
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskSidebarStorageRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+
+  /api/v1/tasks/{id}/sidebar/logs:
+    get:
+      tags: [tasks]
+      summary: 查询任务侧边栏指定执行批次日志
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: run_id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunLogsResponse"
+
   /api/v1/task-runs:
     get:
       tags: [task-runs]
@@ -409,6 +498,60 @@ paths:
     post:
       tags: [dev]
       summary: Run adapter in workbench mode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkbenchRunRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchRunResponse"
+
+  /api/v1/dev/workbench/apps/create:
+    post:
+      tags: [workbench]
+      summary: 创建应用骨架（统一工作台入口）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkbenchScaffoldRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchScaffoldResponse"
+
+  /api/v1/dev/workbench/file:
+    put:
+      tags: [workbench]
+      summary: 保存工作台文件（统一工作台入口）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveInstructionRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevInstructionContentResponse"
+
+  /api/v1/dev/workbench/run:
+    post:
+      tags: [workbench]
+      summary: 工作台测试运行（统一工作台入口）
       requestBody:
         required: true
         content:
@@ -635,6 +778,24 @@ components:
           type: object
           additionalProperties: true
 
+    UpdateTaskSidebarParamsRequest:
+      type: object
+      required: [default_download_days]
+      properties:
+        default_download_days:
+          type: integer
+          minimum: 1
+        extra_params:
+          type: object
+          additionalProperties: true
+
+    UpdateTaskSidebarStorageRequest:
+      type: object
+      required: [storage_config_id]
+      properties:
+        storage_config_id:
+          type: integer
+
     CreateAppRequest:
       type: object
       required: [platform_code, name, adapter_key, version, is_published, avg_runtime_minutes, ops_owner, need_extra_params, data_table, collect_cycle, metrics, usage_guide]
@@ -779,6 +940,10 @@ components:
         release_notes:
           type: string
           nullable: true
+        test_snapshot:
+          type: object
+          nullable: true
+          additionalProperties: true
         released_by:
           type: string
           nullable: true
@@ -814,6 +979,10 @@ components:
         release_notes:
           type: string
           nullable: true
+        test_snapshot:
+          type: object
+          nullable: true
+          additionalProperties: true
         released_by:
           type: string
           nullable: true
@@ -966,9 +1135,111 @@ components:
                         enum: [INFO, WARN, ERROR]
                       message:
                         type: string
+                      ext:
+                        type: object
+                        additionalProperties: true
                       ts:
                         type: string
                         format: date-time
+
+    TaskSidebarResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                task_id:
+                  type: integer
+                params:
+                  type: object
+                  properties:
+                    default_download_days:
+                      type: integer
+                    extra_params:
+                      type: object
+                      additionalProperties: true
+                storage:
+                  type: object
+                  properties:
+                    current_storage_id:
+                      type: integer
+                    current_storage:
+                      type: object
+                      nullable: true
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+                        type:
+                          type: string
+                        status:
+                          type: string
+                        config:
+                          type: object
+                          additionalProperties: true
+                    options:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          name:
+                            type: string
+                          type:
+                            type: string
+                          status:
+                            type: string
+                logs:
+                  type: object
+                  properties:
+                    runs:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          status:
+                            type: string
+                          started_at:
+                            type: string
+                            nullable: true
+                          ended_at:
+                            type: string
+                            nullable: true
+                          duration_ms:
+                            type: integer
+                            nullable: true
+                          error_code:
+                            type: string
+                            nullable: true
+                          error_message:
+                            type: string
+                            nullable: true
+                    selected_run_id:
+                      type: integer
+                      nullable: true
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          step:
+                            type: string
+                          level:
+                            type: string
+                          message:
+                            type: string
+                          ext:
+                            type: object
+                            additionalProperties: true
+                          ts:
+                            type: string
+                            nullable: true
 
     AvailableAdaptersResponse:
       allOf:
@@ -1081,6 +1352,9 @@ components:
           format: date-time
         message:
           type: string
+        ext:
+          type: object
+          additionalProperties: true
 
     WorkbenchRunRequest:
       type: object
@@ -1127,6 +1401,9 @@ components:
                   type: string
                 default_download_days:
                   type: integer
+                runtime_init:
+                  type: object
+                  additionalProperties: true
                 logs:
                   type: array
                   items:

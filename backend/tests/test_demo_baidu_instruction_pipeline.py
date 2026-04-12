@@ -21,7 +21,7 @@ async def test_demo_adapter_returns_rows_in_simulated_mode() -> None:
     """
     关键验证：
     1. 适配器在模拟模式可执行。
-    2. 返回的 action/mode 字段符合预期。
+    2. 返回标准数据集对象字段，且执行模式符合预期。
     """
     adapter = DemoBaiduHelloAdapter()
     context = ExecutionContext(
@@ -41,6 +41,6 @@ async def test_demo_adapter_returns_rows_in_simulated_mode() -> None:
     )
     assert result.success is True
     assert result.rows_count == 1
-    assert result.data[0]["action"] == "baidu_search"
-    assert result.data[0]["mode"] == "simulated"
-
+    row = result.data[0]
+    assert row["数据集"] == "演示_百度搜索_你好"
+    assert row["待插入字段"][1][2] == "simulated"

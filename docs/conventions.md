@@ -13,6 +13,9 @@
 5. 应用上架与任务执行必须校验适配器版本发布状态：仅 `released` 且 `qa_passed=true` 可进入生产链路。
 6. 页面自动化适配器应优先继承 `BaseWebDataAdapter`：`ensure_login` 负责统一登录，`collect_rows` 只负责取数。
 7. 采集结果上传/入库必须走应用层统一入口（`data_sink.persist_rows`），不要在适配器内直接上传。
+8. 标准数据集对象使用 `数据集/文件路径/待插入字段/去重主键` 四个核心键；“待插入字段”第一行是目标字段名，第二行是对应值。
+9. 任务执行链路与工作台测试运行在调用适配器前，必须先执行运行初始化（清理 Downloads、清理 WPS 进程）。
+10. 发版状态为 `released` 时，必须携带 `test_snapshot.success=true`，未通过测试不得发布。
 
 ## Frontend
 1. 页面状态优先局部化，跨页面状态进入 Pinia。

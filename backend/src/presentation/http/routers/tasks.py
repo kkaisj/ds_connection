@@ -5,7 +5,10 @@
 """
 
 import asyncio
+import ast
+import json
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -45,6 +48,36 @@ class UpdateTaskBody(BaseModel):
     storage_config_id: int | None = None
     notification_config_id: int | None = None
     params: dict | None = None
+
+
+class UpdateTaskSidebarParamsBody(BaseModel):
+    """任务侧边栏参数保存请求体。"""
+
+    default_download_days: int = 1
+    extra_params: dict[str, Any] | None = None
+
+
+class UpdateTaskSidebarStorageBody(BaseModel):
+    """任务侧边栏存储配置保存请求体。"""
+
+    storage_config_id: int
+
+
+def _decode_storage_config(config_enc: bytes) -> dict[str, Any]:
+    """解析 storage_config.config_enc，兼容 json 与历史 str(dict)。"""
+    raw = (config_enc or b"").decode("utf-8", errors="replace").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        pass
+    try:
+        value = ast.literal_eval(raw)
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
 
 
 @router.get("")
@@ -256,5 +289,186 @@ async def retry_last_failed(task_id: int, session: AsyncSession = Depends(get_db
         "code": 0,
         "message": "ok",
         "data": {"task_id": task_id, "run_id": run.id, "queued": True},
+    }
+
+
+@router.get("/{task_id}/sidebar")
+async def get_task_sidebar_data(task_id: int, session: AsyncSession = Depends(get_db)):
+    """
+    获取任务右侧侧边栏联动数据。
+    返回：
+    1. 任务参数草稿（default_download_days + extra_params）
+    2. 当前存储配置 + 可选存储列表
+    3. 最近执行记录（倒序）及默认选中批次日志
+    """
+    task = await session.get(TaskInstance, task_id)
+    if not task or task.is_deleted:
+        return {"code": 404, "message": "任务不存在", "data": None}
+
+    params = dict(task.params or {})
+    default_download_days = max(int(params.get("default_download_days", 1) or 1), 1)
+    extra_params = dict(params)
+    extra_params.pop("default_download_days", None)
+
+    current_storage = await session.get(StorageConfig, task.storage_config_id)
+    storage_stmt = (
+        select(StorageConfig)
+        .where(StorageConfig.is_deleted.is_(False))
+        .order_by(StorageConfig.id.desc())
+    )
+    storage_rows = (await session.execute(storage_stmt)).scalars().all()
+    storage_options = [
+        {"id": s.id, "name": s.name, "type": s.type, "status": s.status} for s in storage_rows
+    ]
+
+    run_stmt = (
+        select(TaskRun)
+        .where(TaskRun.task_id == task.id)
+        .order_by(TaskRun.started_at.desc(), TaskRun.id.desc())
+        .limit(20)
+    )
+    runs = (await session.execute(run_stmt)).scalars().all()
+    run_items = [
+        {
+            "id": r.id,
+            "status": r.status,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "ended_at": r.ended_at.isoformat() if r.ended_at else None,
+            "duration_ms": r.duration_ms,
+            "error_code": r.error_code,
+            "error_message": r.error_message,
+        }
+        for r in runs
+    ]
+
+    selected_run_id = run_items[0]["id"] if run_items else None
+    log_items: list[dict[str, Any]] = []
+    if selected_run_id is not None:
+        log_stmt = (
+            select(TaskRunLog)
+            .where(TaskRunLog.run_id == selected_run_id)
+            .order_by(TaskRunLog.created_at)
+        )
+        log_rows = (await session.execute(log_stmt)).scalars().all()
+        log_items = [
+            {
+                "step": log.step,
+                "level": log.level,
+                "message": log.message,
+                "ext": log.ext,
+                "ts": log.created_at.isoformat() if log.created_at else None,
+            }
+            for log in log_rows
+        ]
+
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "task_id": task.id,
+            "params": {
+                "default_download_days": default_download_days,
+                "extra_params": extra_params,
+            },
+            "storage": {
+                "current_storage_id": task.storage_config_id,
+                "current_storage": {
+                    "id": current_storage.id,
+                    "name": current_storage.name,
+                    "type": current_storage.type,
+                    "status": current_storage.status,
+                    "config": _decode_storage_config(current_storage.config_enc),
+                }
+                if current_storage
+                else None,
+                "options": storage_options,
+            },
+            "logs": {
+                "runs": run_items,
+                "selected_run_id": selected_run_id,
+                "items": log_items,
+            },
+        },
+    }
+
+
+@router.patch("/{task_id}/sidebar/params")
+async def update_task_sidebar_params(
+    task_id: int,
+    body: UpdateTaskSidebarParamsBody,
+    session: AsyncSession = Depends(get_db),
+):
+    """保存侧边栏参数配置。"""
+    task = await session.get(TaskInstance, task_id)
+    if not task or task.is_deleted:
+        return {"code": 404, "message": "任务不存在", "data": None}
+
+    days = max(int(body.default_download_days or 1), 1)
+    extra = dict(body.extra_params or {})
+    extra["default_download_days"] = days
+    task.params = extra
+    await session.commit()
+
+    return {"code": 0, "message": "ok", "data": {"task_id": task.id, "params": task.params}}
+
+
+@router.patch("/{task_id}/sidebar/storage")
+async def update_task_sidebar_storage(
+    task_id: int,
+    body: UpdateTaskSidebarStorageBody,
+    session: AsyncSession = Depends(get_db),
+):
+    """保存侧边栏存储配置。"""
+    task = await session.get(TaskInstance, task_id)
+    if not task or task.is_deleted:
+        return {"code": 404, "message": "任务不存在", "data": None}
+
+    storage = await session.get(StorageConfig, body.storage_config_id)
+    if not storage or storage.is_deleted:
+        return {"code": 400, "message": "存储配置不存在", "data": None}
+
+    task.storage_config_id = body.storage_config_id
+    await session.commit()
+    return {"code": 0, "message": "ok", "data": {"task_id": task.id, "storage_config_id": task.storage_config_id}}
+
+
+@router.get("/{task_id}/sidebar/logs")
+async def get_task_sidebar_logs(
+    task_id: int,
+    run_id: int,
+    session: AsyncSession = Depends(get_db),
+):
+    """获取任务侧边栏指定执行批次日志。"""
+    task = await session.get(TaskInstance, task_id)
+    if not task or task.is_deleted:
+        return {"code": 404, "message": "任务不存在", "data": None}
+
+    run = await session.get(TaskRun, run_id)
+    if not run or run.task_id != task_id:
+        return {"code": 404, "message": "执行记录不存在", "data": None}
+
+    stmt = (
+        select(TaskRunLog)
+        .where(TaskRunLog.run_id == run_id)
+        .order_by(TaskRunLog.created_at)
+    )
+    logs = (await session.execute(stmt)).scalars().all()
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "task_id": task_id,
+            "run_id": run_id,
+            "items": [
+                {
+                    "step": log.step,
+                    "level": log.level,
+                    "message": log.message,
+                    "ext": log.ext,
+                    "ts": log.created_at.isoformat() if log.created_at else None,
+                }
+                for log in logs
+            ],
+        },
     }
 

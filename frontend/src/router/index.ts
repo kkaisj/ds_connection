@@ -45,8 +45,8 @@ const router = createRouter({
         {
           path: 'my-instructions',
           name: 'my-instructions',
-          component: () => import('@/pages/MyInstructions.vue'),
-          meta: { title: '我开发的指令' },
+          component: () => import('@/pages/AdapterWorkbench.vue'),
+          meta: { title: '适配器工作台' },
         },
         {
           path: 'tasks',

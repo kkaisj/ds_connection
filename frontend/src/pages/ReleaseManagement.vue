@@ -391,6 +391,10 @@ async function submitRelease() {
     message.warning('请填写版本')
     return
   }
+  if (form.value.status === 'released' && !form.value.qa_passed) {
+    message.warning('发布状态下 QA 必须通过')
+    return
+  }
   await axios.post('/api/v1/apps/releases', {
     adapter_key: form.value.adapter_key.trim(),
     version: form.value.version.trim(),
@@ -399,6 +403,13 @@ async function submitRelease() {
     checksum: form.value.checksum.trim() || null,
     release_notes: form.value.release_notes.trim() || null,
     released_by: form.value.released_by.trim() || null,
+    test_snapshot: form.value.status === 'released'
+      ? {
+          success: !!form.value.qa_passed,
+          source: 'release_management_manual',
+          timestamp: new Date().toISOString(),
+        }
+      : null,
   })
   message.success('发版记录已保存')
   showModal.value = false

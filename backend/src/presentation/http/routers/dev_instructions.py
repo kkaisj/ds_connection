@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import shutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -20,11 +21,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from application.services.runtime_init import initialize_app_runtime
 from config.database import get_db
 from infrastructure.connectors.base.adapter import BaseAdapter
 from infrastructure.connectors.base.execution_context import ExecutionContext
 from infrastructure.connectors.base.registry import get_adapter, get_adapter_meta
-from infrastructure.persistence.models.models import AdapterRelease
+from infrastructure.persistence.models.models import AdapterRelease, ConnectorApp, TaskInstance
 
 router = APIRouter()
 
@@ -41,6 +43,7 @@ class ScaffoldCreateBody(BaseModel):
 
     platform_code: str = Field(..., description="一级平台标识，如 douyin/pdd/taobao")
     app_slug: str = Field(..., description="应用标识，如 product_overview")
+    target_dir: str | None = Field(None, description="可选：指定创建目录（connectors 相对路径）")
     overwrite: bool = Field(False, description="是否覆盖已有文件")
 
 
@@ -52,6 +55,21 @@ class WorkbenchRunBody(BaseModel):
     credentials: dict[str, Any] = Field(default_factory=dict, description="测试账号凭据")
     app_params: dict[str, Any] = Field(default_factory=dict, description="应用参数")
     extra: dict[str, Any] = Field(default_factory=dict, description="执行上下文扩展参数")
+
+
+class CreateNodeBody(BaseModel):
+    """工作台创建目录/文件请求体。"""
+
+    relative_path: str = Field(..., description="connectors 根目录下相对路径")
+    is_dir: bool = Field(False, description="是否创建目录，false 为创建 .py 文件")
+    content: str = Field("", description="创建文件时的初始内容")
+
+
+class RenameNodeBody(BaseModel):
+    """工作台重命名目录/文件请求体。"""
+
+    old_relative_path: str = Field(..., description="原相对路径")
+    new_relative_path: str = Field(..., description="新相对路径")
 
 
 def _connectors_root() -> Path:
@@ -75,6 +93,90 @@ def _ensure_python_file_path(relative_path: str) -> Path:
     if target.suffix != ".py":
         raise ValueError("仅支持 .py 文件")
     return target
+
+
+def _ensure_connector_path(relative_path: str) -> Path:
+    """
+    校验并返回 connectors 下任意节点路径（目录或 .py 文件）。
+    """
+    root = _connectors_root().resolve()
+    normalized = relative_path.strip().replace("\\", "/").strip("/")
+    if not normalized:
+        raise ValueError("路径不能为空")
+    target = (root / normalized).resolve()
+    if not str(target).startswith(str(root)):
+        raise ValueError("非法路径")
+    if target.exists() and target.is_file() and target.suffix != ".py":
+        raise ValueError("仅支持 .py 文件")
+    if not target.exists() and Path(normalized).suffix and Path(normalized).suffix != ".py":
+        raise ValueError("仅支持 .py 文件")
+    return target
+
+
+def _ensure_not_base_path(target: Path) -> None:
+    """
+    防止误操作 connectors/base 目录。
+    """
+    root = _connectors_root().resolve()
+    rel = target.resolve().relative_to(root).as_posix()
+    if rel == "base" or rel.startswith("base/"):
+        raise ValueError("不允许修改 base 目录")
+
+
+def _to_relative_path(target: Path) -> str:
+    """将绝对路径转换为 connectors 相对路径。"""
+    return target.resolve().relative_to(_connectors_root().resolve()).as_posix()
+
+
+def _adapter_key_from_special_file(relative_path: str) -> str | None:
+    """
+    从 login/collect/schema/tests 文件路径推断 adapter_key。
+    """
+    normalized = relative_path.strip().replace("\\", "/").strip("/")
+    parts = normalized.split("/")
+    if len(parts) < 3:
+        return None
+    group = parts[0]
+    if group not in {"login_instructions", "collect_instructions", "schema", "tests"}:
+        return None
+    name = parts[-1]
+    module_dir = "/".join(parts[1:-1]).replace("/", ".")
+    if not module_dir:
+        return None
+
+    if group == "login_instructions" and name.endswith("_login.py"):
+        return f"{module_dir}.{name[:-9]}"
+    if group == "collect_instructions" and name.endswith("_collect.py"):
+        return f"{module_dir}.{name[:-11]}"
+    if group == "schema" and name.endswith("_schema.py"):
+        return f"{module_dir}.{name[:-10]}"
+    if group == "tests" and name.startswith("test_") and name.endswith(".py"):
+        return f"{module_dir}.{name[5:-3]}"
+    return None
+
+
+def _collect_related_adapter_keys(target: Path) -> set[str]:
+    """
+    为目录/文件收集关联的 adapter_key，用于删除前安全检查。
+    """
+    root = _connectors_root().resolve()
+    paths: list[Path] = []
+    if target.is_dir():
+        paths = [item for item in target.rglob("*.py") if item.is_file()]
+    elif target.is_file():
+        paths = [target]
+
+    keys: set[str] = set()
+    for file in paths:
+        rel = file.resolve().relative_to(root).as_posix()
+        direct = _file_to_adapter_key(file, root)
+        if direct:
+            keys.add(direct)
+            continue
+        inferred = _adapter_key_from_special_file(rel)
+        if inferred:
+            keys.add(inferred)
+    return keys
 
 
 def _list_dev_files(root: Path) -> list[Path]:
@@ -140,7 +242,7 @@ def _ensure_package_init_files(target_file: Path, root: Path) -> None:
         current = current.parent
 
 
-def _build_scaffold_content(platform_code: str, app_slug: str) -> dict[str, str]:
+def _build_scaffold_content(platform_code: str, app_slug: str, target_dir: str | None = None) -> dict[str, str]:
     """
     生成应用三件套模板内容。
     包含：
@@ -154,9 +256,11 @@ def _build_scaffold_content(platform_code: str, app_slug: str) -> dict[str, str]
     adapter_cls = f"{pascal}Adapter"
     adapter_key = f"{platform_code}.{app_slug}"
 
-    login_path = f"login_instructions/{platform_code}/{app_slug}_login.py"
-    collect_path = f"collect_instructions/{platform_code}/{app_slug}_collect.py"
-    adapter_path = f"{platform_code}/{app_slug}.py"
+    scaffold_dir = (target_dir or platform_code).strip().replace("\\", "/").strip("/")
+    module_dir = scaffold_dir.replace("/", ".")
+    login_path = f"login_instructions/{scaffold_dir}/{app_slug}_login.py"
+    collect_path = f"collect_instructions/{scaffold_dir}/{app_slug}_collect.py"
+    adapter_path = f"{scaffold_dir}/{app_slug}.py"
 
     login_code = f'''"""
 登录指令：{platform_code}/{app_slug}
@@ -243,8 +347,8 @@ from typing import Any
 
 from infrastructure.connectors.base.execution_context import ExecutionContext
 from infrastructure.connectors.base.web_data_adapter import BaseWebDataAdapter
-from infrastructure.connectors.collect_instructions.{platform_code}.{app_slug}_collect import {collect_cls}
-from infrastructure.connectors.login_instructions.{platform_code}.{app_slug}_login import {login_cls}
+from infrastructure.connectors.collect_instructions.{module_dir}.{app_slug}_collect import {collect_cls}
+from infrastructure.connectors.login_instructions.{module_dir}.{app_slug}_login import {login_cls}
 
 
 class {adapter_cls}(BaseWebDataAdapter):
@@ -452,6 +556,204 @@ async def save_instruction_content(body: SaveInstructionBody):
     }
 
 
+@router.post("/fs/node")
+async def create_instruction_node(body: CreateNodeBody):
+    """
+    创建目录或 .py 文件。
+    """
+    try:
+        target = _ensure_connector_path(body.relative_path)
+        _ensure_not_base_path(target)
+    except ValueError as e:
+        return {"code": 400, "message": str(e), "data": None}
+
+    if target.exists():
+        return {"code": 409, "message": "目标已存在", "data": None}
+
+    if body.is_dir:
+        target.mkdir(parents=True, exist_ok=True)
+        init_file = target / "__init__.py"
+        if not init_file.exists():
+            init_file.write_text("", encoding="utf-8")
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _ensure_package_init_files(target, _connectors_root().resolve())
+        target.write_text(body.content or "", encoding="utf-8")
+
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "relative_path": _to_relative_path(target),
+            "is_dir": bool(body.is_dir),
+        },
+    }
+
+
+@router.patch("/fs/node")
+async def rename_instruction_node(body: RenameNodeBody):
+    """
+    重命名目录或 .py 文件。
+    """
+    try:
+        old_target = _ensure_connector_path(body.old_relative_path)
+        new_target = _ensure_connector_path(body.new_relative_path)
+        _ensure_not_base_path(old_target)
+        _ensure_not_base_path(new_target)
+    except ValueError as e:
+        return {"code": 400, "message": str(e), "data": None}
+
+    if not old_target.exists():
+        return {"code": 404, "message": "原路径不存在", "data": None}
+    if new_target.exists():
+        return {"code": 409, "message": "目标路径已存在", "data": None}
+
+    if old_target.is_file() and old_target.suffix != ".py":
+        return {"code": 400, "message": "仅支持 .py 文件", "data": None}
+    if new_target.suffix and new_target.suffix != ".py":
+        return {"code": 400, "message": "仅支持 .py 文件", "data": None}
+
+    new_target.parent.mkdir(parents=True, exist_ok=True)
+    old_target.rename(new_target)
+    if new_target.is_file():
+        _ensure_package_init_files(new_target, _connectors_root().resolve())
+
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "old_relative_path": _to_relative_path(old_target),
+            "new_relative_path": _to_relative_path(new_target),
+        },
+    }
+
+
+@router.get("/fs/delete-check")
+async def check_delete_instruction_node(
+    relative_path: str = Query(..., description="connectors 相对路径"),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    """
+    删除前检查：是否已发版、已上架或已被连接任务使用。
+    """
+    try:
+        target = _ensure_connector_path(relative_path)
+        _ensure_not_base_path(target)
+    except ValueError as e:
+        return {"code": 400, "message": str(e), "data": None}
+
+    if not target.exists():
+        return {"code": 404, "message": "目标不存在", "data": None}
+
+    adapter_keys = sorted(_collect_related_adapter_keys(target))
+    if not adapter_keys:
+        return {
+            "code": 0,
+            "message": "ok",
+            "data": {
+                "can_delete": True,
+                "adapter_keys": [],
+                "released_count": 0,
+                "listed_count": 0,
+                "task_count": 0,
+            },
+        }
+
+    release_rows = await session.execute(
+        select(AdapterRelease).where(
+            AdapterRelease.adapter_key.in_(adapter_keys),
+            AdapterRelease.is_deleted.is_(False),
+            AdapterRelease.status == "released",
+            AdapterRelease.qa_passed.is_(True),
+        )
+    )
+    listed_rows = await session.execute(
+        select(ConnectorApp).where(
+            ConnectorApp.adapter_key.in_(adapter_keys),
+            ConnectorApp.is_deleted.is_(False),
+            ConnectorApp.status == "active",
+        )
+    )
+    task_rows = await session.execute(
+        select(TaskInstance).join(ConnectorApp, TaskInstance.app_id == ConnectorApp.id).where(
+            ConnectorApp.adapter_key.in_(adapter_keys),
+            ConnectorApp.is_deleted.is_(False),
+            TaskInstance.is_deleted.is_(False),
+        )
+    )
+
+    released_count = len(release_rows.scalars().all())
+    listed_count = len(listed_rows.scalars().all())
+    task_count = len(task_rows.scalars().all())
+    can_delete = released_count == 0 and listed_count == 0 and task_count == 0
+
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "can_delete": can_delete,
+            "adapter_keys": adapter_keys,
+            "released_count": released_count,
+            "listed_count": listed_count,
+            "task_count": task_count,
+        },
+    }
+
+
+@router.delete("/fs/node")
+async def delete_instruction_node(
+    relative_path: str = Query(..., description="connectors 相对路径"),
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    """
+    删除目录或 .py 文件。
+    """
+    try:
+        target = _ensure_connector_path(relative_path)
+        _ensure_not_base_path(target)
+    except ValueError as e:
+        return {"code": 400, "message": str(e), "data": None}
+
+    if not target.exists():
+        return {"code": 404, "message": "目标不存在", "data": None}
+
+    adapter_keys = sorted(_collect_related_adapter_keys(target))
+    if adapter_keys:
+        release_rows = await session.execute(
+            select(AdapterRelease).where(
+                AdapterRelease.adapter_key.in_(adapter_keys),
+                AdapterRelease.is_deleted.is_(False),
+                AdapterRelease.status == "released",
+                AdapterRelease.qa_passed.is_(True),
+            )
+        )
+        listed_rows = await session.execute(
+            select(ConnectorApp).where(
+                ConnectorApp.adapter_key.in_(adapter_keys),
+                ConnectorApp.is_deleted.is_(False),
+                ConnectorApp.status == "active",
+            )
+        )
+        task_rows = await session.execute(
+            select(TaskInstance).join(ConnectorApp, TaskInstance.app_id == ConnectorApp.id).where(
+                ConnectorApp.adapter_key.in_(adapter_keys),
+                ConnectorApp.is_deleted.is_(False),
+                TaskInstance.is_deleted.is_(False),
+            )
+        )
+        if release_rows.scalars().first() or listed_rows.scalars().first() or task_rows.scalars().first():
+            return {"code": 409, "message": "目标已发版/上架/被连接任务使用，禁止删除", "data": None}
+
+    if target.is_dir():
+        shutil.rmtree(target)
+    else:
+        if target.suffix != ".py":
+            return {"code": 400, "message": "仅支持 .py 文件", "data": None}
+        target.unlink(missing_ok=True)
+
+    return {"code": 0, "message": "ok", "data": {"relative_path": relative_path}}
+
+
 @router.post("/workbench/scaffold")
 async def create_workbench_scaffold(body: ScaffoldCreateBody):
     """
@@ -462,11 +764,14 @@ async def create_workbench_scaffold(body: ScaffoldCreateBody):
     """
     platform = body.platform_code.strip().lower()
     app_slug = body.app_slug.strip().lower().replace("-", "_")
+    target_dir = (body.target_dir or "").strip().lower().replace("\\", "/").strip("/")
+    if target_dir and (".." in target_dir or target_dir.startswith("/")):
+        return {"code": 400, "message": "target_dir 非法", "data": None}
     if not platform or not app_slug:
         return {"code": 400, "message": "platform_code 和 app_slug 不能为空", "data": None}
 
     root = _connectors_root().resolve()
-    files = _build_scaffold_content(platform, app_slug)
+    files = _build_scaffold_content(platform, app_slug, target_dir or None)
 
     results: list[dict[str, Any]] = []
     for relative_path, content in files.items():
@@ -498,6 +803,7 @@ async def create_workbench_scaffold(body: ScaffoldCreateBody):
         "data": {
             "platform_code": platform,
             "app_slug": app_slug,
+            "target_dir": target_dir or platform,
             "files": results,
             "adapter_key": f"{platform}.{app_slug}",
         },
@@ -515,15 +821,36 @@ async def run_workbench_adapter(body: WorkbenchRunBody):
     if not body.adapter_key and not body.relative_path:
         return {"code": 400, "message": "adapter_key 或 relative_path 至少提供一个", "data": None}
 
-    credentials = body.credentials or {}
     app_params = dict(body.app_params or {})
-    app_params.setdefault("real_browser", True)
+    raw_input = app_params.get("input") if isinstance(app_params.get("input"), dict) else {}
+    unified_input: dict[str, Any] = dict(raw_input or {})
+    page_params = dict(unified_input.get("page_params") or {})
+    storage = dict(unified_input.get("storage") or app_params.get("storage") or {})
+    runtime = dict(unified_input.get("runtime") or {})
+    account_config = dict(unified_input.get("account_config") or {})
+    credentials = dict(unified_input.get("credentials") or body.credentials or {})
 
-    default_days_raw = app_params.get("default_download_days", 1)
+    default_days_raw = unified_input.get("default_download_days", app_params.get("default_download_days", 1))
     try:
         default_download_days = max(int(default_days_raw), 1)
     except (TypeError, ValueError):
         default_download_days = 1
+
+    runtime.setdefault("real_browser", bool(app_params.get("real_browser", True)))
+    unified_input = {
+        "credentials": credentials,
+        "page_params": page_params,
+        "account_config": account_config,
+        "default_download_days": default_download_days,
+        "runtime": runtime,
+        "storage": storage,
+    }
+    app_params["input"] = unified_input
+    app_params.setdefault("storage", storage)
+    app_params.setdefault("page_params", page_params)
+    app_params["default_download_days"] = default_download_days
+    app_params["real_browser"] = bool(runtime.get("real_browser", True))
+    app_params.setdefault("workbench_collect_only", True)
 
     start_date, end_date = ExecutionContext.resolve_date_range(default_download_days)
     if app_params.get("start_date") and app_params.get("end_date"):
@@ -549,6 +876,14 @@ async def run_workbench_adapter(body: WorkbenchRunBody):
     start_ts = time.time()
     logs: list[dict[str, Any]] = []
     logs.append({"time": datetime.now().isoformat(timespec="seconds"), "message": "开始执行"})
+    runtime_init = initialize_app_runtime(app_params)
+    logs.append(
+        {
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "message": "运行前初始化完成（清理 Downloads + 清理 WPS 进程）",
+            "ext": runtime_init,
+        }
+    )
 
     try:
         if body.adapter_key:
@@ -597,6 +932,7 @@ async def run_workbench_adapter(body: WorkbenchRunBody):
                 "start_date": start_date,
                 "end_date": end_date,
                 "default_download_days": default_download_days,
+                "runtime_init": runtime_init,
             },
         }
     except Exception as e:
@@ -619,6 +955,7 @@ async def run_workbench_adapter(body: WorkbenchRunBody):
                 "start_date": start_date,
                 "end_date": end_date,
                 "default_download_days": default_download_days,
+                "runtime_init": runtime_init,
             },
         }
     finally:

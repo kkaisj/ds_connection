@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from application.services.data_sink import persist_rows
+from application.services.runtime_init import initialize_app_runtime
 from infrastructure.connectors.base.execution_context import ExecutionContext
 from infrastructure.connectors.base.registry import get_adapter
 from infrastructure.persistence.models.models import (
@@ -85,6 +86,9 @@ async def execute_task_run(session: AsyncSession, run_id: int) -> None:
     run.started_at = datetime.now()
     await session.commit()
 
+    # 运行前初始化：清理 Downloads + 清理 WPS 进程。
+    runtime_init_result = initialize_app_runtime(task.params or {})
+
     await _add_log(
         session,
         run.id,
@@ -96,6 +100,7 @@ async def execute_task_run(session: AsyncSession, run_id: int) -> None:
             "adapter_version": app.version,
             "release_id": release.id,
             "release_checksum": release.checksum,
+            "runtime_init": runtime_init_result,
         },
     )
 
@@ -169,11 +174,20 @@ async def execute_task_run(session: AsyncSession, run_id: int) -> None:
 
     if result.success:
         # 统一数据落地点：适配器只负责取数，上传/入库在应用层统一处理。
-        await persist_rows(
+        sink_result = await persist_rows(
             session=session,
             storage_config_id=task.storage_config_id,
             rows=result.data,
             run_id=run.id,
+            input_context={
+                "adapter_key": app.adapter_key,
+                "dataset_name": app.name,
+                "platform_name": platform.name if platform else "",
+                "sub_platform_name": platform.name if platform else "",
+                "shop_name": account.shop_name,
+                "archive_root_dir": str(app_params.get("archive_root_dir") or ""),
+                "enable_append_columns": bool(app_params.get("enable_append_columns", True)),
+            },
         )
         run.status = "success"
         run.ended_at = now
@@ -184,6 +198,7 @@ async def execute_task_run(session: AsyncSession, run_id: int) -> None:
             "complete",
             "INFO",
             f"采集完成，共 {result.rows_count} 条数据",
+            ext={"sink_result": sink_result},
         )
     else:
         run.status = "failed"
