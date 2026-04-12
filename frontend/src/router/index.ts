@@ -43,6 +43,12 @@ const router = createRouter({
           meta: { title: '适配器工作台' },
         },
         {
+          path: 'my-instructions',
+          name: 'my-instructions',
+          component: () => import('@/pages/MyInstructions.vue'),
+          meta: { title: '我开发的指令' },
+        },
+        {
           path: 'tasks',
           name: 'tasks',
           component: () => import('@/pages/Tasks.vue'),

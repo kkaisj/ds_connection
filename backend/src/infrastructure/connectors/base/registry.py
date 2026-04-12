@@ -9,52 +9,9 @@
 
 from infrastructure.connectors.base.adapter import BaseAdapter
 
-
 # 连接器注册表：adapter_key -> 元数据
 # class_path 为运行时导入路径；display_name/description/default_version 用于上架页面展示
 _REGISTRY: dict[str, dict[str, str]] = {
-    "taobao.order_sync": {
-        "class_path": "infrastructure.connectors.taobao.order_sync.TaobaoOrderSyncAdapter",
-        "platform_code": "taobao",
-        "display_name": "订单数据采集",
-        "description": "采集淘宝天猫订单数据",
-        "default_version": "1.0.0",
-    },
-    "taobao.logistics_track": {
-        "class_path": "infrastructure.connectors.taobao.logistics_track.TaobaoLogisticsTrackAdapter",
-        "platform_code": "taobao",
-        "display_name": "物流轨迹更新",
-        "description": "更新淘宝天猫物流轨迹信息",
-        "default_version": "1.0.0",
-    },
-    "jd.product_stock_sync": {
-        "class_path": "infrastructure.connectors.jd.product_stock_sync.JdProductStockSyncAdapter",
-        "platform_code": "jd",
-        "display_name": "商品库存同步",
-        "description": "同步京东商品库存",
-        "default_version": "1.0.0",
-    },
-    "jd.refund_sync": {
-        "class_path": "infrastructure.connectors.jd.refund_sync.JdRefundSyncAdapter",
-        "platform_code": "jd",
-        "display_name": "退款数据同步",
-        "description": "同步京东退款数据",
-        "default_version": "1.0.0",
-    },
-    "pdd.review_scrape": {
-        "class_path": "infrastructure.connectors.pdd.review_scrape.PddReviewScrapeAdapter",
-        "platform_code": "pdd",
-        "display_name": "评价数据抓取",
-        "description": "抓取拼多多商品评价数据",
-        "default_version": "1.0.0",
-    },
-    "douyin.traffic_analytics": {
-        "class_path": "infrastructure.connectors.douyin.traffic_analytics.DouyinTrafficAnalyticsAdapter",
-        "platform_code": "douyin",
-        "display_name": "流量数据采集",
-        "description": "采集抖音流量分析数据",
-        "default_version": "1.0.0",
-    },
     "demo.baidu_hello": {
         "class_path": "infrastructure.connectors.demo.baidu_hello.DemoBaiduHelloAdapter",
         "platform_code": "douyin",

@@ -2,55 +2,13 @@
 
 数据连接器（DC）项目。
 
-## 开发应用在哪里
+## 项目定位
 
-### 1. 适配器代码位置（你真正开发业务逻辑的地方）
-- `backend/src/infrastructure/connectors/<platform>/`
-- 例如：
-  - `backend/src/infrastructure/connectors/douyin/traffic_analytics.py`
-  - `backend/src/infrastructure/connectors/taobao/order_sync.py`
+统一管理电商平台连接能力，覆盖应用上架、任务配置、执行调度、结果回流与告警。
 
-### 2. 适配器注册位置（不注册就无法发版/上架/执行）
-- `backend/src/infrastructure/connectors/base/registry.py`
-- 需要新增 `_REGISTRY` 条目：
-  - `adapter_key`
-  - `class_path`
-  - `platform_code`
-  - `display_name`（中文名）
-  - `description`
-  - `default_version`
+## 快速启动
 
-## 从开发到上架最短流程
-
-1. 在 `connectors` 目录完成适配器实现，并在 `registry.py` 注册。  
-2. 发版（写入发布记录）：
-```http
-POST /api/v1/apps/releases
-{
-  "adapter_key": "douyin.traffic_analytics",
-  "version": "1.1.0",
-  "status": "released",
-  "qa_passed": true,
-  "released_by": "kun-kun"
-}
-```
-3. 上架应用（应用管理页面或接口）时选择该 `adapter_key + version`。  
-4. 任务运行时会再次校验发布状态：仅 `released + qa_passed=true` 可执行。  
-
-说明：如果第 2 步没做，上架会被拒绝。
-
-## 页面入口（开发辅助）
-
-- 前端新增“适配器工作台”页面：`/adapter-workbench`
-- 用途：开发者代码工作台（代码优先），编写 DrissionPage 自动化脚本并实时预览操作
-- 功能：代码编辑、页面预览 iframe、实时操作解析（get/click/input/wait/sleep）、Python 下载
-- 注意：该页面不直接写服务端文件，开发完成后仍需把代码落到：
-  - `backend/src/infrastructure/connectors/<platform>/`
-  - 并在 `backend/src/infrastructure/connectors/base/registry.py` 完成注册
-
-## 启动方式
-
-### 1. 后端
+### 后端
 ```powershell
 cd backend
 uv sync
@@ -58,39 +16,50 @@ uv run python -m scripts.init_db
 uv run uvicorn main:app --app-dir src --reload --port 8000
 ```
 
-### 2. 前端
+### 调度 Worker（独立进程）
+```powershell
+cd backend
+uv sync
+uv run python src/worker.py
+```
+
+### 前端
 ```powershell
 cd frontend
 npm install
 npm run dev
 ```
 
-前端默认访问地址：`http://localhost:5173`  
-后端默认访问地址：`http://localhost:8000`
+- 前端默认地址：`http://localhost:5173`
+- 后端默认地址：`http://localhost:8000`
+- Worker 与后端 API 分离启动，负责自动调度 `enabled` 状态任务
 
-## 详细说明
-完整运行说明见：
-- `docs/runbook.md`
+## 开发者入口
 
-## 最小闭环演示（百度“你好”）
+### 适配器代码位置
+- `backend/src/infrastructure/connectors/<platform>/`
 
-用于快速验证“开发 -> 发版 -> 上架 -> 绑定任务 -> 执行 -> 回流”链路。
+### 适配器注册位置
+- `backend/src/infrastructure/connectors/base/registry.py`
 
-1. 进入“发版管理”页面，新增发版：
-```http
-POST /api/v1/apps/releases
-{
-  "adapter_key": "demo.baidu_hello",
-  "version": "0.1.0",
-  "status": "released",
-  "qa_passed": true,
-  "released_by": "kun-kun"
-}
-```
-2. 进入“应用管理”页面，上架“百度你好演示”应用（版本默认取最新已发版版本）。
-3. 在“连接任务”创建任务并手动执行。
-4. 在“执行记录/看板”查看运行结果与日志回流。
+### 开发辅助页面
+- 适配器工作台：`/adapter-workbench`
+- 用于编写 DrissionPage 脚本、实时查看解析后的操作预览、下载 `.py`
+- 该页面不直接写入后端文件系统
 
-说明：
-- `demo.baidu_hello` 默认模拟执行（无需 DrissionPage）。
-- 当任务参数 `real_browser=true` 时，会尝试真实浏览器执行“打开百度 -> 输入你好 -> 回车”（需安装 DrissionPage）。
+## 开发 -> 发版 -> 上架（主链路）
+
+1. 在 `connectors` 目录完成适配器实现，并在 `registry.py` 注册。
+2. 通过 `POST /api/v1/apps/releases` 创建发版记录（`released` 且 `qa_passed=true`）。
+3. 在应用管理页面上架该 `adapter_key + version`。
+4. 任务执行前会再次校验发布状态，不满足发布条件会直接拦截。
+
+## 文档索引
+
+- 运行说明：`docs/runbook.md`
+- 架构说明：`docs/architecture.md`
+- 模块边界：`docs/module-boundaries.md`
+- 规范约束：`docs/conventions.md`
+- API 契约：`docs/api/openapi.yaml`
+- 数据模型：`docs/data-model/schema.sql`
+- 项目进度：`PROGRESS.json`

@@ -35,6 +35,12 @@
 6. 提测与验收：按 `.harness/evaluation.md` 打分并记录结论。
 7. 会话切换：更新 `.harness/handoff.md`，确保可接续。
 
+## Documentation Mapping
+1. `README.md` 仅保留导航式入口内容（项目定位、启动方式、主链路、文档索引），避免堆叠实现细节和长示例。
+2. 实现细节写入对应专题文档：架构写 `docs/architecture.md`，接口写 `docs/api/openapi.yaml`，数据结构写 `docs/data-model/schema.sql`，规范写 `docs/conventions.md`。
+3. 进度与里程碑统一写入 `PROGRESS.json`，记录“做了什么”而不是重复贴实现说明。
+4. 每次交付回复必须明确标注“改了哪些文件”，并说明各文件承载的信息类型。
+
 ## Hard Constraints
 1. 分层方向只能是 `presentation -> application -> domain`，`infrastructure` 由 application 调用。
 2. 禁止跨 feature 直接依赖内部实现。

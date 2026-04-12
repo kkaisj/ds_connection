@@ -1,93 +1,83 @@
 """
-演示适配器：百度搜索“你好”。
-
+演示适配器：百度搜索“你好”
 用途：
-- 提供一条可用于“发版 -> 上架 -> 任务执行 -> 执行记录回流”的最小闭环链路
-- 在未安装 DrissionPage 时，仍可走模拟执行，便于本地联调
+1. 演示“登录指令集 + 取数指令集 + 统一上传入口”的完整编排方式。
+2. 作为已上架 demo 应用，验证从发版到运行的最小闭环链路。
 """
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime
 from typing import Any
 
-from infrastructure.connectors.base.adapter import AdapterResult, BaseAdapter
+from infrastructure.connectors.base.execution_context import ExecutionContext
+from infrastructure.connectors.base.web_data_adapter import BaseWebDataAdapter
+from infrastructure.connectors.collect_instructions.demo.baidu_search_collect import (
+    DemoBaiduSearchCollectInstruction,
+)
+from infrastructure.connectors.login_instructions.demo.baidu_noop_login import (
+    DemoBaiduNoopLoginInstruction,
+)
 
 
-class DemoBaiduHelloAdapter(BaseAdapter):
-    """演示适配器：打开百度，输入“你好”，按回车。"""
+class DemoBaiduHelloAdapter(BaseWebDataAdapter):
+    """
+    百度“你好”演示适配器。
+    核心逻辑：
+    1. `ensure_login()` 调用登录指令集。
+    2. `collect_rows()` 调用取数指令集。
+    3. 适配器自身只负责参数编排，不写具体页面操作细节。
+    """
 
     adapter_key = "demo.baidu_hello"
 
-    async def execute(
+    def __init__(self) -> None:
+        super().__init__()
+        self._login_instruction = DemoBaiduNoopLoginInstruction()
+        self._collect_instruction = DemoBaiduSearchCollectInstruction()
+
+    async def create_context(
         self,
-        credentials: dict[str, Any],
-        params: dict[str, Any] | None = None,
-    ) -> AdapterResult:
+        execution_context: ExecutionContext,
+        app_params: dict[str, Any],
+    ) -> dict[str, Any]:
         """
-        执行演示自动化。
-
-        参数说明：
-        - params.keyword: 搜索词，默认“你好”
-        - params.real_browser: 是否尝试真实浏览器执行（默认 false）
+        构建任务上下文。
+        约定：通过 `page_getter` 暴露隔离浏览器获取能力，供取数指令复用。
         """
-        p = params or {}
-        keyword = str(p.get("keyword") or "你好")
-        real_browser = bool(p.get("real_browser", False))
+        keyword = str(app_params.get("keyword") or "你好")
+        real_browser = bool(app_params.get("real_browser", False))
 
-        if real_browser:
-            ok, msg = await self._try_drissionpage(keyword)
-            if not ok:
-                return AdapterResult(
-                    success=False,
-                    error_code="DRISSIONPAGE_NOT_READY",
-                    error_message=msg,
-                    rows_count=0,
-                    data=[],
-                )
+        def page_getter(start_url: str):
+            """统一获取隔离浏览器页面对象。"""
+            return self.get_web_page(
+                execution_context,
+                start_url=start_url,
+                app_params=app_params,
+            )
 
-        # 模拟执行步骤（保证在未安装浏览器自动化依赖时也能联调闭环）
-        await asyncio.sleep(0.2)  # 打开页面
-        await asyncio.sleep(0.2)  # 输入关键词
-        await asyncio.sleep(0.2)  # 回车搜索
+        return {
+            "keyword": keyword,
+            "real_browser": real_browser,
+            "start_date": execution_context.start_date,
+            "end_date": execution_context.end_date,
+            "page_getter": page_getter,
+        }
 
-        now = datetime.now().isoformat(timespec="seconds")
-        return AdapterResult(
-            success=True,
-            rows_count=1,
-            data=[
-                {
-                    "action": "baidu_search",
-                    "keyword": keyword,
-                    "executed_at": now,
-                    "mode": "real_browser" if real_browser else "simulated",
-                    "note": "已执行“打开百度 -> 输入关键词 -> 回车”流程",
-                }
-            ],
-        )
+    async def ensure_login(
+        self,
+        context: dict[str, Any],
+        execution_context: ExecutionContext,
+        app_params: dict[str, Any],
+    ) -> None:
+        """执行登录指令。"""
+        await self._login_instruction.run(context, execution_context, app_params)
 
-    async def _try_drissionpage(self, keyword: str) -> tuple[bool, str]:
-        """尝试真实 DrissionPage 执行，失败时返回错误信息。"""
-        try:
-            from DrissionPage import ChromiumPage  # type: ignore
-        except Exception as e:  # pragma: no cover
-            return False, f"未安装 DrissionPage 或导入失败: {e}"
-
-        try:
-            page = ChromiumPage()
-            page.get("https://www.baidu.com")
-            box = page.ele('css:#kw')
-            if not box:
-                return False, "未找到百度搜索输入框 #kw"
-            box.input(keyword)
-            btn = page.ele('css:#su')
-            if not btn:
-                return False, "未找到百度搜索按钮 #su"
-            btn.click()
-            await asyncio.sleep(1.0)
-            page.quit()
-            return True, "ok"
-        except Exception as e:  # pragma: no cover
-            return False, f"真实浏览器执行失败: {e}"
+    async def collect_rows(
+        self,
+        context: dict[str, Any],
+        execution_context: ExecutionContext,
+        app_params: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """执行取数指令并返回标准化数据。"""
+        return await self._collect_instruction.run(context, execution_context, app_params)
 

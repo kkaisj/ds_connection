@@ -4,6 +4,7 @@
 所有查询过滤 is_deleted=False，删除操作为软删除。
 """
 
+import asyncio
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
@@ -14,8 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.database import get_db
 from infrastructure.persistence.models.models import (
     ConnectorApp,
+    NotificationConfig,
     Platform,
     ShopAccount,
+    StorageConfig,
     TaskInstance,
     TaskRun,
 )
@@ -39,6 +42,8 @@ class UpdateTaskBody(BaseModel):
     name: str | None = None
     cron_expr: str | None = None
     status: str | None = None
+    storage_config_id: int | None = None
+    notification_config_id: int | None = None
     params: dict | None = None
 
 
@@ -50,12 +55,27 @@ async def list_tasks(
     session: AsyncSession = Depends(get_db),
 ):
     """查询未删除的任务实例列表，支持平台/状态/关键词筛选。"""
+    # 子查询：按任务维度取“最新一条执行记录状态”。
+    latest_run_status_subq = (
+        select(TaskRun.status)
+        .where(TaskRun.task_id == TaskInstance.id)
+        .order_by(TaskRun.started_at.desc(), TaskRun.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
     stmt = (
-        select(TaskInstance, ConnectorApp, Platform, ShopAccount)
+        select(
+            TaskInstance,
+            ConnectorApp,
+            Platform,
+            ShopAccount,
+            latest_run_status_subq.label("last_run_status"),
+        )
         .join(ConnectorApp, TaskInstance.app_id == ConnectorApp.id)
         .join(Platform, ConnectorApp.platform_id == Platform.id)
         .join(ShopAccount, TaskInstance.account_id == ShopAccount.id)
-        .where(TaskInstance.is_deleted == False)
+        .where(TaskInstance.is_deleted.is_(False))
     )
 
     if platform:
@@ -66,11 +86,14 @@ async def list_tasks(
         # 模糊搜索任务名、应用名、店铺名
         like = f"%{keyword}%"
         from sqlalchemy import or_
-        stmt = stmt.where(or_(
-            TaskInstance.name.like(like),
-            ConnectorApp.name.like(like),
-            ShopAccount.shop_name.like(like),
-        ))
+
+        stmt = stmt.where(
+            or_(
+                TaskInstance.name.like(like),
+                ConnectorApp.name.like(like),
+                ShopAccount.shop_name.like(like),
+            )
+        )
 
     stmt = stmt.order_by(TaskInstance.id.desc())
     result = await session.execute(stmt)
@@ -82,6 +105,10 @@ async def list_tasks(
             {
                 "id": task.id,
                 "name": task.name,
+                "app_id": task.app_id,
+                "account_id": task.account_id,
+                "storage_config_id": task.storage_config_id,
+                "notification_config_id": task.notification_config_id,
                 "cron_expr": task.cron_expr,
                 "status": task.status,
                 "params": task.params,
@@ -90,10 +117,11 @@ async def list_tasks(
                 "platform_name": plat.name,
                 "shop_name": account.shop_name,
                 "last_run_at": task.last_run_at.isoformat() if task.last_run_at else None,
+                "last_run_status": last_run_status,
                 "next_run_at": task.next_run_at.isoformat() if task.next_run_at else None,
                 "created_at": task.created_at.isoformat() if task.created_at else None,
             }
-            for task, app, plat, account in result.all()
+            for task, app, plat, account, last_run_status in result.all()
         ],
     }
 
@@ -122,6 +150,16 @@ async def update_task(task_id: int, body: UpdateTaskBody, session: AsyncSession 
     task = await session.get(TaskInstance, task_id)
     if not task or task.is_deleted:
         return {"code": 404, "message": "任务不存在", "data": None}
+
+    if body.storage_config_id is not None:
+        storage = await session.get(StorageConfig, body.storage_config_id)
+        if not storage or storage.is_deleted:
+            return {"code": 400, "message": "存储配置不存在", "data": None}
+
+    if body.notification_config_id is not None:
+        notification = await session.get(NotificationConfig, body.notification_config_id)
+        if not notification or notification.is_deleted:
+            return {"code": 400, "message": "通知配置不存在", "data": None}
 
     for key, value in body.model_dump(exclude_none=True).items():
         setattr(task, key, value)
@@ -152,13 +190,17 @@ async def trigger_run(task_id: int, session: AsyncSession = Depends(get_db)):
     if not task or task.is_deleted:
         return {"code": 404, "message": "任务不存在", "data": None}
 
-    run = TaskRun(task_id=task_id, trigger_type="manual", status="pending", started_at=datetime.now())
+    run = TaskRun(
+        task_id=task_id,
+        trigger_type="manual",
+        status="pending",
+        started_at=datetime.now(),
+    )
     session.add(run)
     await session.commit()
     await session.refresh(run)
 
     # 异步执行任务（不阻塞 API 响应）
-    import asyncio
     from application.services.task_executor import execute_task_run
     from config.database import async_session_factory
 
@@ -169,7 +211,11 @@ async def trigger_run(task_id: int, session: AsyncSession = Depends(get_db)):
 
     asyncio.create_task(_run_in_background(run.id))
 
-    return {"code": 0, "message": "ok", "data": {"task_id": task_id, "run_id": run.id, "queued": True}}
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": {"task_id": task_id, "run_id": run.id, "queued": True},
+    }
 
 
 @router.post("/{task_id}/retry")
@@ -197,7 +243,6 @@ async def retry_last_failed(task_id: int, session: AsyncSession = Depends(get_db
     await session.refresh(run)
 
     # 异步执行重试任务（与手动执行保持一致）
-    import asyncio
     from application.services.task_executor import execute_task_run
     from config.database import async_session_factory
 
@@ -207,5 +252,9 @@ async def retry_last_failed(task_id: int, session: AsyncSession = Depends(get_db
 
     asyncio.create_task(_run_in_background(run.id))
 
-    return {"code": 0, "message": "ok", "data": {"task_id": task_id, "run_id": run.id, "queued": True}}
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": {"task_id": task_id, "run_id": run.id, "queued": True},
+    }
 

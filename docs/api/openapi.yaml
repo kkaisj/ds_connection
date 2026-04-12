@@ -10,6 +10,7 @@ tags:
   - name: accounts
   - name: tasks
   - name: task-runs
+  - name: dev
 paths:
   /api/v1/apps:
     get:
@@ -234,6 +235,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/TaskResponse"
 
+  /api/v1/tasks/{id}:
+    patch:
+      tags: [tasks]
+      summary: 更新任务实例（参数/存储/触发）
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+
   /api/v1/tasks/{id}/run:
     post:
       tags: [tasks]
@@ -309,6 +334,94 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RunLogsResponse"
+
+  /api/v1/dev/instructions:
+    get:
+      tags: [dev]
+      summary: 查询我开发的指令/适配器列表
+      parameters:
+        - in: query
+          name: keyword
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevInstructionsResponse"
+
+  /api/v1/dev/instructions/content:
+    get:
+      tags: [dev]
+      summary: 查询指定指令代码内容
+      parameters:
+        - in: query
+          name: relative_path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevInstructionContentResponse"
+
+    put:
+      tags: [dev]
+      summary: Save instruction source code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveInstructionRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevInstructionContentResponse"
+
+  /api/v1/dev/instructions/workbench/scaffold:
+    post:
+      tags: [dev]
+      summary: Generate login/collect/adapter scaffold files
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkbenchScaffoldRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchScaffoldResponse"
+
+  /api/v1/dev/instructions/workbench/run:
+    post:
+      tags: [dev]
+      summary: Run adapter in workbench mode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkbenchRunRequest"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchRunResponse"
 
 components:
   schemas:
@@ -393,7 +506,7 @@ components:
 
     Task:
       type: object
-      required: [id, app_id, account_id, cron_expr, status]
+      required: [id, app_id, account_id, storage_config_id, notification_config_id, cron_expr, status]
       properties:
         id:
           type: integer
@@ -401,11 +514,37 @@ components:
           type: integer
         account_id:
           type: integer
+        storage_config_id:
+          type: integer
+        notification_config_id:
+          type: integer
         cron_expr:
           type: string
         status:
           type: string
           enum: [enabled, paused]
+        name:
+          type: string
+        app_name:
+          type: string
+        platform_code:
+          type: string
+        platform_name:
+          type: string
+        shop_name:
+          type: string
+        last_run_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_run_status:
+          type: string
+          nullable: true
+          description: 最近一次执行状态，来源 task_run.status
+          enum: [pending, running, success, failed, cancelled]
+        params:
+          type: object
+          additionalProperties: true
 
     TaskRun:
       type: object
@@ -477,6 +616,24 @@ components:
           type: integer
         notification_config_id:
           type: integer
+
+    UpdateTaskRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        cron_expr:
+          type: string
+        status:
+          type: string
+          enum: [enabled, paused]
+        storage_config_id:
+          type: integer
+        notification_config_id:
+          type: integer
+        params:
+          type: object
+          additionalProperties: true
 
     CreateAppRequest:
       type: object
@@ -677,6 +834,36 @@ components:
         level:
           type: integer
           enum: [1, 2]
+
+    DevInstructionItem:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [adapter, login_instruction, collect_instruction]
+        status:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        relative_path:
+          type: string
+        adapter_key:
+          type: string
+          nullable: true
+
+    DevInstructionContent:
+      type: object
+      properties:
+        relative_path:
+          type: string
+        content:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
     AppResponse:
       allOf:
         - $ref: "#/components/schemas/BaseResponse"
@@ -817,4 +1004,136 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/PlatformItem"
+
+    DevInstructionsResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/DevInstructionItem"
+
+    DevInstructionContentResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/DevInstructionContent"
+
+    SaveInstructionRequest:
+      type: object
+      required: [relative_path, content]
+      properties:
+        relative_path:
+          type: string
+        content:
+          type: string
+
+    WorkbenchScaffoldRequest:
+      type: object
+      required: [platform_code, app_slug]
+      properties:
+        platform_code:
+          type: string
+        app_slug:
+          type: string
+        overwrite:
+          type: boolean
+          default: false
+
+    WorkbenchScaffoldResponseItem:
+      type: object
+      properties:
+        relative_path:
+          type: string
+        created:
+          type: boolean
+        message:
+          type: string
+
+    WorkbenchScaffoldResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                platform_code:
+                  type: string
+                app_slug:
+                  type: string
+                adapter_key:
+                  type: string
+                files:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WorkbenchScaffoldResponseItem"
+
+    WorkbenchRunLogItem:
+      type: object
+      properties:
+        time:
+          type: string
+          format: date-time
+        message:
+          type: string
+
+    WorkbenchRunRequest:
+      type: object
+      properties:
+        adapter_key:
+          type: string
+          nullable: true
+        relative_path:
+          type: string
+          nullable: true
+        credentials:
+          type: object
+          additionalProperties: true
+        app_params:
+          type: object
+          additionalProperties: true
+        extra:
+          type: object
+          additionalProperties: true
+
+    WorkbenchRunResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                rows_count:
+                  type: integer
+                error_code:
+                  type: string
+                  nullable: true
+                error_message:
+                  type: string
+                  nullable: true
+                duration_ms:
+                  type: integer
+                start_date:
+                  type: string
+                end_date:
+                  type: string
+                default_download_days:
+                  type: integer
+                logs:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WorkbenchRunLogItem"
+                data_preview:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
 

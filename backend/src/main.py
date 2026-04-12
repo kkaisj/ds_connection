@@ -10,6 +10,7 @@ from config.settings import settings
 from presentation.http.routers import (
     accounts,
     dashboard,
+    dev_instructions,
     executions,
     marketplace,
     notifications,
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(executions.router, prefix="/api/v1/task-runs", tags=["task-runs"])
     app.include_router(storages.router, prefix="/api/v1/storages", tags=["storages"])
     app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
+    app.include_router(dev_instructions.router, prefix="/api/v1/dev/instructions", tags=["dev"])
 
     return app
 

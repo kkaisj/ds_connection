@@ -10,10 +10,13 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from application.services.data_sink import persist_rows
+from infrastructure.connectors.base.execution_context import ExecutionContext
 from infrastructure.connectors.base.registry import get_adapter
 from infrastructure.persistence.models.models import (
     AdapterRelease,
     ConnectorApp,
+    Platform,
     ShopAccount,
     TaskInstance,
     TaskRun,
@@ -48,6 +51,7 @@ async def execute_task_run(session: AsyncSession, run_id: int) -> None:
 
     app = await session.get(ConnectorApp, task.app_id)
     account = await session.get(ShopAccount, task.account_id)
+    platform = await session.get(Platform, app.platform_id) if app else None
 
     if not app or not account:
         await _fail_run(session, run, "CONFIG_ERROR", "应用或账号配置不存在")
@@ -63,8 +67,8 @@ async def execute_task_run(session: AsyncSession, run_id: int) -> None:
             AdapterRelease.adapter_key == app.adapter_key,
             AdapterRelease.version == app.version,
             AdapterRelease.status == "released",
-            AdapterRelease.qa_passed == True,
-            AdapterRelease.is_deleted == False,
+            AdapterRelease.qa_passed.is_(True),
+            AdapterRelease.is_deleted.is_(False),
         )
     )
     if not release:
@@ -108,10 +112,46 @@ async def execute_task_run(session: AsyncSession, run_id: int) -> None:
         "password": account.password_enc.decode("utf-8", errors="replace"),
         "extra": account.extra_enc.decode("utf-8", errors="replace") if account.extra_enc else None,
     }
+    app_params = task.params or {}
+    default_days_raw = app_params.get("default_download_days", 1)
+    try:
+        default_download_days = max(int(default_days_raw), 1)
+    except (TypeError, ValueError):
+        default_download_days = 1
+
+    # 优先使用默认下载天数换算范围；兼容旧参数（start_date/end_date）作为兜底。
+    start_date, end_date = ExecutionContext.resolve_date_range(default_download_days)
+    if app_params.get("start_date") and app_params.get("end_date"):
+        start_date = str(app_params.get("start_date"))
+        end_date = str(app_params.get("end_date"))
+
+    execution_context = ExecutionContext(
+        run_id=run.id,
+        task_id=task.id,
+        adapter_key=app.adapter_key,
+        credentials=credentials,
+        default_download_days=default_download_days,
+        start_date=start_date,
+        end_date=end_date,
+        trace_id=f"run-{run.id}",
+        extra={
+            # 浏览器隔离上下文：后续适配器通过 get_web_page() 自动读取，不再硬编码。
+            "company_name": str(app_params.get("company_name") or "dc_connection"),
+            "platform_code": str(
+                (platform.code if platform else "") or app.adapter_key.split(".")[0]
+            ),
+            "account_name": str(app_params.get("account_name") or account.shop_name or account.id),
+            "browser_zoom": str(app_params.get("browser_zoom") or "75"),
+        },
+    )
 
     try:
         await _add_log(session, run.id, "adapter_exec", "INFO", "适配器开始采集")
-        result = await adapter.execute(credentials, task.params)
+        if hasattr(adapter, "execute_with_context"):
+            result = await adapter.execute_with_context(execution_context, app_params)  # type: ignore[attr-defined]
+        else:
+            # 兼容旧适配器：仍允许走历史 execute(credentials, params) 入口。
+            result = await adapter.execute(credentials, app_params)
     except Exception as e:
         logger.exception(f"适配器执行异常: {app.adapter_key}")
         await _fail_run(session, run, "ADAPTER_EXCEPTION", str(e))
@@ -128,17 +168,36 @@ async def execute_task_run(session: AsyncSession, run_id: int) -> None:
     duration_ms = int((now - run.started_at).total_seconds() * 1000) if run.started_at else 0
 
     if result.success:
+        # 统一数据落地点：适配器只负责取数，上传/入库在应用层统一处理。
+        await persist_rows(
+            session=session,
+            storage_config_id=task.storage_config_id,
+            rows=result.data,
+            run_id=run.id,
+        )
         run.status = "success"
         run.ended_at = now
         run.duration_ms = duration_ms
-        await _add_log(session, run.id, "complete", "INFO", f"采集完成，共 {result.rows_count} 条数据")
+        await _add_log(
+            session,
+            run.id,
+            "complete",
+            "INFO",
+            f"采集完成，共 {result.rows_count} 条数据",
+        )
     else:
         run.status = "failed"
         run.ended_at = now
         run.duration_ms = duration_ms
         run.error_code = result.error_code
         run.error_message = result.error_message
-        await _add_log(session, run.id, "failed", "ERROR", f"{result.error_code}: {result.error_message}")
+        await _add_log(
+            session,
+            run.id,
+            "failed",
+            "ERROR",
+            f"{result.error_code}: {result.error_message}",
+        )
 
     # 更新任务实例的最后执行时间
     task.last_run_at = now

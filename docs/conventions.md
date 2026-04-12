@@ -11,6 +11,8 @@
 3. Repository 仅负责数据访问，不包含业务判断。
 4. DTO 与 ORM 实体分离。
 5. 应用上架与任务执行必须校验适配器版本发布状态：仅 `released` 且 `qa_passed=true` 可进入生产链路。
+6. 页面自动化适配器应优先继承 `BaseWebDataAdapter`：`ensure_login` 负责统一登录，`collect_rows` 只负责取数。
+7. 采集结果上传/入库必须走应用层统一入口（`data_sink.persist_rows`），不要在适配器内直接上传。
 
 ## Frontend
 1. 页面状态优先局部化，跨页面状态进入 Pinia。
