@@ -11,10 +11,10 @@ from typing import Any
 
 from infrastructure.connectors.base.execution_context import ExecutionContext
 from infrastructure.connectors.base.web_data_adapter import BaseWebDataAdapter
-from infrastructure.connectors.collect_instructions.demo.baidu_search_collect import (
+from infrastructure.connectors.collect_data.demo.baidu_search_collect import (
     DemoBaiduSearchCollectInstruction,
 )
-from infrastructure.connectors.login_instructions.demo.baidu_noop_login import (
+from infrastructure.connectors.login.demo.baidu_noop_login import (
     DemoBaiduNoopLoginInstruction,
 )
 
@@ -80,4 +80,3 @@ class DemoBaiduHelloAdapter(BaseWebDataAdapter):
     ) -> list[dict[str, Any]]:
         """执行取数指令并返回标准化数据。"""
         return await self._collect_instruction.run(context, execution_context, app_params)
-

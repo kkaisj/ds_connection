@@ -25,61 +25,86 @@
       <aside class="wb-explorer">
         <div class="pane-title explorer-title">
           <span>应用目录树</span>
-          <div class="title-actions">
-            <button class="icon-btn icon-file-add" title="根目录新建文件" @click="createFile('')"></button>
-            <button class="icon-btn icon-folder-add" title="根目录新建目录" @click="createDirectory('')"></button>
-          </div>
         </div>
-        <div class="tree">
+        <div class="explorer-toolbar">
+          <button class="toolbar-icon-btn" title="根目录新建文件" @click="createFile('')">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 1.75h5.25L13 5.5V14a1.25 1.25 0 0 1-1.25 1.25h-7.5A1.25 1.25 0 0 1 3 14V3A1.25 1.25 0 0 1 4.25 1.75zM9 2.8V5.5h2.7" />
+              <path d="M8 8v4M6 10h4" />
+            </svg>
+          </button>
+          <button class="toolbar-icon-btn" title="根目录新建目录" @click="createDirectory('')">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M1.75 4A1.25 1.25 0 0 1 3 2.75h3l1.1 1.1h5.9A1.25 1.25 0 0 1 14.25 5v7A1.25 1.25 0 0 1 13 13.25H3A1.25 1.25 0 0 1 1.75 12z" />
+              <path d="M8 7.5v4M6 9.5h4" />
+            </svg>
+          </button>
+          <button class="toolbar-icon-btn" title="刷新目录" @click="refreshExplorer">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M13.2 7.2A5.2 5.2 0 1 1 11.8 3M12 1.8v3h-3" />
+            </svg>
+          </button>
+          <button class="toolbar-icon-btn" title="折叠全部目录" @click="collapseAllDirs">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2.5 4.25h11M2.5 8h11M2.5 11.75h11" />
+              <path d="M4.8 3l-2 2 2 2M4.8 6.8l-2 2 2 2M4.8 10.6l-2 2" />
+            </svg>
+          </button>
+        </div>
+        <div class="tree" @contextmenu.prevent="openRootContextMenu($event)">
           <div
-            v-for="node in visibleNodes"
-            :key="node.path"
-            class="tree-node"
-            :class="{ active: activePath === node.path, dir: node.isDir }"
-            :style="{ paddingLeft: `${10 + node.depth * 16}px` }"
-            @mouseenter="hoveredPath = node.path"
-            @mouseleave="hoveredPath = ''"
-            @click="handleTreeClick(node)"
-            @contextmenu.prevent="openContextMenu($event, node)"
+            v-for="row in treeRenderRows"
+            :key="row.key"
           >
-            <span class="caret">{{ node.isDir ? (isExpanded(node.path) ? '▾' : '▸') : '' }}</span>
-            <span class="node-icon" :class="nodeIconClass(node.name, node.isDir)"></span>
-            <input
-              v-if="renameState.path === node.path"
-              ref="renameInputRef"
-              v-model="renameState.nameInput"
-              class="tree-inline-input"
-              @click.stop
-              @keydown.enter.stop.prevent="submitInlineRename"
-              @keydown.esc.stop.prevent="cancelInlineRename"
-            />
-            <span v-else class="node-name">{{ node.name }}</span>
-            <div v-if="hoveredPath === node.path || activePath === node.path" class="node-actions">
-              <button v-if="node.isDir" class="node-action-btn icon-file-add" title="新建文件" @click.stop="createFile(node.path)"></button>
-              <button v-if="node.isDir" class="node-action-btn icon-folder-add" title="新建目录" @click.stop="createDirectory(node.path)"></button>
-              <button class="node-action-btn icon-rename" title="重命名" @click.stop="renameNode(node.path)"></button>
-              <button class="node-action-btn danger icon-delete" title="删除" @click.stop="deleteNode(node.path)"></button>
+            <div
+              v-if="row.kind === 'node' && row.node"
+              class="tree-node"
+              :class="{ active: activePath === row.node.path, dir: row.node.isDir }"
+              :style="{ paddingLeft: `${10 + row.node.depth * 16}px` }"
+              @click="handleTreeClick(row.node)"
+              @contextmenu.prevent.stop="openContextMenu($event, row.node)"
+            >
+              <span class="caret">{{ row.node.isDir ? (isExpanded(row.node.path) ? '▾' : '▸') : '' }}</span>
+              <span class="node-icon" :class="nodeIconClass(row.node.name, row.node.isDir)"></span>
+              <input
+                v-if="renameState.path === row.node.path"
+                ref="renameInputRef"
+                v-model="renameState.nameInput"
+                class="tree-inline-input"
+                :class="{ 'has-error': !!renameState.errorText }"
+                @click.stop
+                @keydown.enter.stop.prevent="submitInlineRename"
+                @keydown.esc.stop.prevent="cancelInlineRename"
+              />
+              <div v-if="renameState.path === row.node.path && renameState.errorText" class="tree-inline-error">
+                {{ renameState.errorText }}
+              </div>
+              <span v-else class="node-name">{{ row.node.name }}</span>
+            </div>
+            <div
+              v-else
+              class="tree-node creating"
+              :style="{ paddingLeft: `${10 + row.depth * 16}px` }"
+            >
+              <div class="create-inline-row">
+                <span class="caret"></span>
+                <span class="node-icon" :class="inlineCreate.isDir ? 'folder' : 'py'"></span>
+                <input
+                  ref="createInputRef"
+                  v-model="inlineCreate.nameInput"
+                  class="tree-inline-input"
+                  :class="{ 'has-error': !!inlineCreate.errorText }"
+                  :placeholder="inlineCreate.isDir ? '目录名' : '文件名(.py)'"
+                  @keydown.enter.stop.prevent="submitInlineCreate"
+                  @keydown.esc.stop.prevent="cancelInlineCreate"
+                />
+                <button class="inline-text-btn" @click="submitInlineCreate">确定</button>
+                <button class="inline-text-btn" @click="cancelInlineCreate">取消</button>
+              </div>
+              <div v-if="inlineCreate.errorText" class="tree-inline-error">{{ inlineCreate.errorText }}</div>
             </div>
           </div>
-          <div
-            v-if="inlineCreate.visible"
-            class="tree-node creating"
-            :style="{ paddingLeft: `${10 + inlineCreateDepth * 16}px` }"
-          >
-            <span class="caret"></span>
-            <span class="node-icon" :class="inlineCreate.isDir ? 'folder' : 'py'"></span>
-            <input
-              ref="createInputRef"
-              v-model="inlineCreate.nameInput"
-              class="tree-inline-input"
-              :placeholder="inlineCreate.isDir ? '目录名' : '文件名(.py)'"
-              @keydown.enter.stop.prevent="submitInlineCreate"
-              @keydown.esc.stop.prevent="cancelInlineCreate"
-            />
-            <button class="node-action-btn" @click="submitInlineCreate">确定</button>
-            <button class="node-action-btn" @click="cancelInlineCreate">取消</button>
-          </div>
-          <div v-if="visibleNodes.length === 0" class="tree-empty">先创建骨架后开始开发</div>
+          <div v-if="visibleNodes.length === 0 && !inlineCreate.visible" class="tree-empty">先创建骨架后开始开发</div>
         </div>
         <div
           v-if="contextMenu.visible"
@@ -315,6 +340,7 @@ interface OpenTab {
 
 interface InstructionRow {
   relative_path: string
+  is_dir?: boolean
 }
 
 interface RunLog {
@@ -350,12 +376,14 @@ interface InlineCreateState {
   isDir: boolean
   parentPath: string
   nameInput: string
+  errorText: string
 }
 
 interface RenameState {
   path: string
   isDir: boolean
   nameInput: string
+  errorText: string
 }
 
 interface ContextMenuState {
@@ -364,6 +392,13 @@ interface ContextMenuState {
   y: number
   targetPath: string
   targetIsDir: boolean
+}
+
+interface TreeRenderRow {
+  kind: 'node' | 'create'
+  key: string
+  depth: number
+  node?: TreeNode
 }
 
 const message = useMessage()
@@ -417,7 +452,6 @@ const actionModal = reactive({
   errorText: '',
   deleteCheck: null as DeleteCheckResult | null,
 })
-const hoveredPath = ref('')
 const createInputRef = ref<HTMLInputElement | null>(null)
 const renameInputRef = ref<HTMLInputElement | null>(null)
 const inlineCreate = reactive<InlineCreateState>({
@@ -425,11 +459,13 @@ const inlineCreate = reactive<InlineCreateState>({
   isDir: false,
   parentPath: '',
   nameInput: '',
+  errorText: '',
 })
 const renameState = reactive<RenameState>({
   path: '',
   isDir: false,
   nameInput: '',
+  errorText: '',
 })
 const contextMenu = reactive<ContextMenuState>({
   visible: false,
@@ -445,22 +481,100 @@ function appAdapterPath(): string {
   return `${platform}/${slug}.py`
 }
 
-function allFilePaths(): string[] {
-  return instructionRows.value.map((row) => row.relative_path)
-}
-
 /**
  * 拉取“已开发指令/适配器”全量文件清单，目录树以真实文件为准，避免误以为文件被删除。
  */
 async function loadInstructionRows(): Promise<void> {
+  const previousExpanded = new Set(expandedDirs.value)
   const res = await axios.get('/api/v1/dev/instructions')
   instructionRows.value = res.data?.data || []
+  const validDirs = new Set<string>()
   const topDirs = new Set<string>()
   for (const row of instructionRows.value) {
-    const root = String(row.relative_path || '').split('/')[0]
-    if (root) topDirs.add(root)
+    const normalized = String(row.relative_path || '').replace(/\\/g, '/').trim()
+    if (!normalized) continue
+    const parts = normalized.split('/').filter(Boolean)
+    if (!parts.length) continue
+    topDirs.add(parts[0])
+    let current = ''
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      current = current ? `${current}/${parts[i]}` : parts[i]
+      validDirs.add(current)
+    }
+    if (row.is_dir) validDirs.add(normalized)
   }
-  expandedDirs.value = topDirs
+  if (previousExpanded.size > 0) {
+    expandedDirs.value = new Set(Array.from(previousExpanded).filter((path) => validDirs.has(path)))
+  } else {
+    expandedDirs.value = topDirs
+  }
+}
+
+function hasInstructionRow(path: string, isDir?: boolean): boolean {
+  return instructionRows.value.some((row) => {
+    if (row.relative_path !== path) return false
+    if (typeof isDir === 'boolean') return Boolean(row.is_dir) === isDir
+    return true
+  })
+}
+
+function ensureParentDirRows(path: string): void {
+  const parts = path.split('/').filter(Boolean)
+  let current = ''
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    current = current ? `${current}/${parts[i]}` : parts[i]
+    if (!hasInstructionRow(current, true)) {
+      instructionRows.value.push({ relative_path: current, is_dir: true })
+    }
+  }
+}
+
+function applyCreatedNode(path: string, isDir: boolean): void {
+  ensureParentDirRows(path)
+  if (!hasInstructionRow(path, isDir)) {
+    instructionRows.value.push({ relative_path: path, is_dir: isDir })
+  }
+}
+
+function applyRenamedNode(oldPath: string, newPath: string, isDir: boolean): void {
+  instructionRows.value = instructionRows.value.map((row) => {
+    const path = row.relative_path
+    if (isDir) {
+      if (path === oldPath || path.startsWith(`${oldPath}/`)) {
+        return { ...row, relative_path: `${newPath}${path.slice(oldPath.length)}` }
+      }
+      return row
+    }
+    if (path === oldPath) return { ...row, relative_path: newPath }
+    return row
+  })
+}
+
+function applyDeletedNode(path: string, isDir: boolean): void {
+  instructionRows.value = instructionRows.value.filter((row) => {
+    if (isDir) return row.relative_path !== path && !row.relative_path.startsWith(`${path}/`)
+    return row.relative_path !== path
+  })
+}
+
+function remapExpandedAfterRename(oldPath: string, newPath: string, isDir: boolean): void {
+  if (!isDir) return
+  const next = new Set<string>()
+  for (const item of expandedDirs.value) {
+    if (item === oldPath || item.startsWith(`${oldPath}/`)) {
+      next.add(`${newPath}${item.slice(oldPath.length)}`)
+    } else {
+      next.add(item)
+    }
+  }
+  expandedDirs.value = next
+}
+
+function removeExpandedAfterDelete(path: string, isDir: boolean): void {
+  if (!isDir) return
+  expandedDirs.value = new Set(
+    Array.from(expandedDirs.value).filter((item) => item !== path && !item.startsWith(`${path}/`))
+  )
 }
 
 function sortTreeNodes(nodes: TreeBuilderNode[]): TreeBuilderNode[] {
@@ -484,22 +598,27 @@ function flattenTree(nodes: TreeBuilderNode[], output: TreeNode[]): void {
 
 const treeNodes = computed<TreeNode[]>(() => {
   const roots = new Map<string, TreeBuilderNode>()
-  for (const path of allFilePaths()) {
+  for (const row of instructionRows.value) {
+    const path = String(row.relative_path || '').replace(/\\/g, '/').trim()
+    if (!path) continue
+    const leafIsDir = Boolean(row.is_dir)
     const parts = path.split('/')
     let currentPath = ''
     let currentLevel = roots
     parts.forEach((part, idx) => {
       currentPath = currentPath ? `${currentPath}/${part}` : part
       const isLeaf = idx === parts.length - 1
+      const nodeIsDir = !isLeaf || leafIsDir
       const existing = currentLevel.get(part)
       if (existing) {
+        if (nodeIsDir) existing.isDir = true
         if (!isLeaf) currentLevel = existing.children
         return
       }
       const created: TreeBuilderNode = {
         name: part,
         path: currentPath,
-        isDir: !isLeaf,
+        isDir: nodeIsDir,
         depth: idx,
         children: new Map<string, TreeBuilderNode>(),
       }
@@ -583,9 +702,66 @@ const actionConfirmDisabled = computed(() => {
   return !sanitizeNodeName(actionModal.nameInput)
 })
 
-const inlineCreateDepth = computed(() => {
-  if (!inlineCreate.parentPath) return 0
-  return inlineCreate.parentPath.split('/').filter(Boolean).length
+const treeRenderRows = computed<TreeRenderRow[]>(() => {
+  const rows: TreeRenderRow[] = visibleNodes.value.map((node) => ({
+    kind: 'node',
+    key: `node:${node.path}`,
+    depth: node.depth,
+    node,
+  }))
+  if (!inlineCreate.visible) return rows
+
+  const parent = sanitizeNodeName(inlineCreate.parentPath)
+  const createDepth = parent ? parent.split('/').filter(Boolean).length : 0
+  const parentPrefix = parent ? `${parent}/` : ''
+  const isDirectChild = (row: TreeRenderRow): boolean => {
+    if (row.kind !== 'node' || !row.node) return false
+    return row.node.depth === createDepth && parentDir(row.node.path) === parent
+  }
+
+  let startIndex = 0
+  let endIndex = rows.length
+  if (parent) {
+    const parentIndex = rows.findIndex((row) => row.kind === 'node' && row.node?.path === parent)
+    if (parentIndex < 0) {
+      startIndex = rows.length
+      endIndex = rows.length
+    } else {
+      startIndex = parentIndex + 1
+      endIndex = rows.length
+      for (let i = startIndex; i < rows.length; i += 1) {
+        const candidate = rows[i]
+        if (candidate.kind !== 'node' || !candidate.node) continue
+        if (!candidate.node.path.startsWith(parentPrefix)) {
+          endIndex = i
+          break
+        }
+      }
+    }
+  }
+
+  let insertIndex = startIndex
+  if (inlineCreate.isDir) {
+    insertIndex = startIndex
+  } else {
+    let firstFileIndex = -1
+    for (let i = startIndex; i < endIndex; i += 1) {
+      const candidate = rows[i]
+      if (!isDirectChild(candidate) || !candidate.node) continue
+      if (!candidate.node.isDir) {
+        firstFileIndex = i
+        break
+      }
+    }
+    insertIndex = firstFileIndex >= 0 ? firstFileIndex : endIndex
+  }
+
+  rows.splice(insertIndex, 0, {
+    kind: 'create',
+    key: `create:${parent || '__root__'}`,
+    depth: createDepth,
+  })
+  return rows
 })
 
 function isExpanded(path: string): boolean {
@@ -659,6 +835,33 @@ function sanitizeNodeName(name: string): string {
   return name.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
 }
 
+function duplicateNameError(name: string): string {
+  return `此位置已存在文件或文件夹 ${name}。请选择其他名称。`
+}
+
+function isApiOk(resp: any): boolean {
+  return Number(resp?.data?.code) === 0
+}
+
+function apiMessage(resp: any, fallback: string): string {
+  return String(resp?.data?.message || fallback)
+}
+
+/**
+ * 规范化 Python 文件名：
+ * 1. 无后缀时自动补齐 .py
+ * 2. 存在非 .py 后缀时直接报错
+ */
+function normalizePythonFileName(rawName: string): { ok: boolean; fileName: string; error?: string } {
+  const name = sanitizeNodeName(rawName)
+  if (!name || name.includes('/')) return { ok: false, fileName: '', error: '文件名不合法' }
+  const lastDot = name.lastIndexOf('.')
+  if (lastDot > 0 && !name.endsWith('.py')) {
+    return { ok: false, fileName: '', error: '仅支持创建/重命名为 .py 文件，请修改后缀' }
+  }
+  return { ok: true, fileName: name.endsWith('.py') ? name : `${name}.py` }
+}
+
 function resetActionModal(type: ActionType): void {
   actionModal.visible = true
   actionModal.type = type
@@ -692,14 +895,33 @@ function openContextMenu(event: MouseEvent, node: TreeNode): void {
   contextMenu.targetIsDir = node.isDir
 }
 
+function openRootContextMenu(event: MouseEvent): void {
+  contextMenu.visible = true
+  contextMenu.x = event.clientX
+  contextMenu.y = event.clientY
+  contextMenu.targetPath = ''
+  contextMenu.targetIsDir = true
+}
+
+async function refreshExplorer(): Promise<void> {
+  await loadInstructionRows()
+  message.success('目录已刷新')
+}
+
+function collapseAllDirs(): void {
+  expandedDirs.value = new Set()
+}
+
 function cancelInlineCreate(): void {
   inlineCreate.visible = false
   inlineCreate.nameInput = ''
+  inlineCreate.errorText = ''
 }
 
 function cancelInlineRename(): void {
   renameState.path = ''
   renameState.nameInput = ''
+  renameState.errorText = ''
 }
 
 /**
@@ -713,6 +935,7 @@ async function createDirectory(parentPath?: string): Promise<void> {
   inlineCreate.isDir = true
   inlineCreate.parentPath = parent
   inlineCreate.nameInput = ''
+  inlineCreate.errorText = ''
   if (parent) {
     const next = new Set(expandedDirs.value)
     next.add(parent)
@@ -730,6 +953,7 @@ async function createFile(parentPath?: string): Promise<void> {
   inlineCreate.isDir = false
   inlineCreate.parentPath = parent
   inlineCreate.nameInput = ''
+  inlineCreate.errorText = ''
   if (parent) {
     const next = new Set(expandedDirs.value)
     next.add(parent)
@@ -740,20 +964,34 @@ async function createFile(parentPath?: string): Promise<void> {
 }
 
 async function submitInlineCreate(): Promise<void> {
+  inlineCreate.errorText = ''
   const inputName = sanitizeNodeName(inlineCreate.nameInput)
   if (!inputName || inputName.includes('/')) {
-    message.warning(inlineCreate.isDir ? '目录名不合法' : '文件名不合法')
+    inlineCreate.errorText = inlineCreate.isDir ? '目录名不合法' : '文件名不合法'
     return
   }
-  const fileOrDirName = inlineCreate.isDir ? inputName : (inputName.endsWith('.py') ? inputName : `${inputName}.py`)
+  const normalizedFile = inlineCreate.isDir ? null : normalizePythonFileName(inputName)
+  if (normalizedFile && !normalizedFile.ok) {
+    inlineCreate.errorText = normalizedFile.error || '仅支持 .py 文件'
+    return
+  }
+  const fileOrDirName = inlineCreate.isDir ? inputName : normalizedFile!.fileName
   const parent = sanitizeNodeName(inlineCreate.parentPath)
   const relativePath = parent ? `${parent}/${fileOrDirName}` : fileOrDirName
-  await axios.post('/api/v1/dev/workbench/fs/node', {
+  const resp = await axios.post('/api/v1/dev/workbench/fs/node', {
     relative_path: relativePath,
     is_dir: inlineCreate.isDir,
     content: inlineCreate.isDir ? undefined : '',
   })
-  await loadInstructionRows()
+  if (!isApiOk(resp)) {
+    if (Number(resp?.data?.code) === 409) {
+      inlineCreate.errorText = duplicateNameError(fileOrDirName)
+      return
+    }
+    inlineCreate.errorText = apiMessage(resp, '创建失败，请稍后重试')
+    return
+  }
+  applyCreatedNode(relativePath, inlineCreate.isDir)
   activePath.value = relativePath
   if (!inlineCreate.isDir) {
     const code = await readFile(relativePath).catch(() => '')
@@ -805,12 +1043,14 @@ async function renameNode(targetPath?: string): Promise<void> {
   renameState.path = node.path
   renameState.isDir = node.isDir
   renameState.nameInput = node.name
+  renameState.errorText = ''
   await nextTick()
   renameInputRef.value?.focus()
 }
 
 async function submitInlineRename(): Promise<void> {
   if (!renameState.path) return
+  renameState.errorText = ''
   const node = findNode(renameState.path)
   if (!node) {
     cancelInlineRename()
@@ -818,22 +1058,36 @@ async function submitInlineRename(): Promise<void> {
   }
   const nextNameRaw = sanitizeNodeName(renameState.nameInput)
   if (!nextNameRaw || nextNameRaw.includes('/')) {
-    message.warning('名称不合法')
+    renameState.errorText = '名称不合法'
     return
   }
-  const nextName = node.isDir ? nextNameRaw : (nextNameRaw.endsWith('.py') ? nextNameRaw : `${nextNameRaw}.py`)
+  const normalizedFile = node.isDir ? null : normalizePythonFileName(nextNameRaw)
+  if (normalizedFile && !normalizedFile.ok) {
+    renameState.errorText = normalizedFile.error || '仅支持 .py 文件'
+    return
+  }
+  const nextName = node.isDir ? nextNameRaw : normalizedFile!.fileName
   const parent = parentDir(node.path)
   const newPath = parent ? `${parent}/${nextName}` : nextName
   if (newPath === node.path) {
     cancelInlineRename()
     return
   }
-  await axios.patch('/api/v1/dev/workbench/fs/node', {
+  const resp = await axios.patch('/api/v1/dev/workbench/fs/node', {
     old_relative_path: node.path,
     new_relative_path: newPath,
   })
+  if (!isApiOk(resp)) {
+    if (Number(resp?.data?.code) === 409) {
+      renameState.errorText = duplicateNameError(nextName)
+      return
+    }
+    renameState.errorText = apiMessage(resp, '重命名失败，请稍后重试')
+    return
+  }
   remapTabsAfterRename(node.path, newPath, node.isDir)
-  await loadInstructionRows()
+  applyRenamedNode(node.path, newPath, node.isDir)
+  remapExpandedAfterRename(node.path, newPath, node.isDir)
   activePath.value = newPath
   cancelInlineRename()
   message.success('重命名成功')
@@ -882,7 +1136,7 @@ async function submitActionModal(): Promise<void> {
       if (baseDir.includes('..')) throw new Error('创建位置不合法')
       const relativePath = baseDir ? `${baseDir}/${dirName}` : dirName
       await axios.post('/api/v1/dev/workbench/fs/node', { relative_path: relativePath, is_dir: true })
-      await loadInstructionRows()
+      applyCreatedNode(relativePath, true)
       activePath.value = relativePath
       targetDir.value = relativePath
       const next = new Set(expandedDirs.value)
@@ -899,10 +1153,12 @@ async function submitActionModal(): Promise<void> {
       if (!inputName || inputName.includes('/')) throw new Error('文件名不合法')
       const baseDir = sanitizeNodeName(actionModal.baseDir)
       if (baseDir.includes('..')) throw new Error('创建位置不合法')
-      const fileName = inputName.endsWith('.py') ? inputName : `${inputName}.py`
+      const normalizedFile = normalizePythonFileName(inputName)
+      if (!normalizedFile.ok) throw new Error(normalizedFile.error || '仅支持 .py 文件')
+      const fileName = normalizedFile.fileName
       const relativePath = baseDir ? `${baseDir}/${fileName}` : fileName
       await axios.post('/api/v1/dev/workbench/fs/node', { relative_path: relativePath, is_dir: false, content: '' })
-      await loadInstructionRows()
+      applyCreatedNode(relativePath, false)
       const code = await readFile(relativePath).catch(() => '')
       openTabs.value.push({ name: fileName, path: relativePath, code, dirty: false })
       activePath.value = relativePath
@@ -921,7 +1177,9 @@ async function submitActionModal(): Promise<void> {
       if (!node) throw new Error('未找到选中节点')
       const nextNameRaw = sanitizeNodeName(actionModal.nameInput)
       if (!nextNameRaw || nextNameRaw.includes('/')) throw new Error('名称不合法')
-      const nextName = node.isDir ? nextNameRaw : (nextNameRaw.endsWith('.py') ? nextNameRaw : `${nextNameRaw}.py`)
+      const normalizedFile = node.isDir ? null : normalizePythonFileName(nextNameRaw)
+      if (normalizedFile && !normalizedFile.ok) throw new Error(normalizedFile.error || '仅支持 .py 文件')
+      const nextName = node.isDir ? nextNameRaw : normalizedFile!.fileName
       const parent = parentDir(node.path)
       const newPath = parent ? `${parent}/${nextName}` : nextName
       if (newPath === node.path) {
@@ -933,7 +1191,8 @@ async function submitActionModal(): Promise<void> {
         new_relative_path: newPath,
       })
       remapTabsAfterRename(node.path, newPath, node.isDir)
-      await loadInstructionRows()
+      applyRenamedNode(node.path, newPath, node.isDir)
+      remapExpandedAfterRename(node.path, newPath, node.isDir)
       activePath.value = newPath
       message.success('重命名成功')
       closeActionModal()
@@ -949,8 +1208,9 @@ async function submitActionModal(): Promise<void> {
     } else {
       openTabs.value = openTabs.value.filter((tab) => tab.path !== actionModal.targetPath)
     }
+    applyDeletedNode(actionModal.targetPath, actionModal.targetIsDir)
+    removeExpandedAfterDelete(actionModal.targetPath, actionModal.targetIsDir)
     activePath.value = ''
-    await loadInstructionRows()
     message.success('删除成功')
     closeActionModal()
   } catch (error: unknown) {
@@ -1195,34 +1455,56 @@ onBeforeUnmount(() => {
 .wb-explorer { position: relative; }
 .pane-title { padding: 10px 12px; border-bottom: 1px solid var(--border-light); font-size: 13px; color: var(--text-secondary); font-weight: 600; }
 .explorer-title { display: flex; justify-content: space-between; align-items: center; }
-.title-actions { display: flex; gap: 6px; }
-.icon-btn {
+.explorer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px dashed var(--border-light);
+}
+.toolbar-icon-btn {
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--border);
+  border-radius: 6px;
   background: var(--bg-subtle);
   color: var(--text-secondary);
-  border-radius: 6px;
-  width: 24px;
-  height: 24px;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
-.icon-btn::before,
-.node-action-btn::before {
-  display: inline-block;
-  font-size: 12px;
-  line-height: 1;
+.toolbar-icon-btn:hover {
+  border-color: var(--accent-copper);
+  color: var(--text-primary);
+  background: var(--accent-copper-bg);
 }
-.icon-file-add::before { content: "⊕"; }
-.icon-folder-add::before { content: "▣"; }
-.icon-rename::before { content: "✎"; }
-.icon-delete::before { content: "✕"; }
+.toolbar-icon-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .top-gap { margin-top: 8px; border-top: 1px dashed var(--border-light); }
 
 .tree { max-height: calc(100vh - 230px); overflow: auto; padding: 6px 0; }
 .tree-node { display: flex; align-items: center; gap: 7px; min-height: 30px; padding-right: 10px; cursor: pointer; color: var(--text-secondary); }
 .tree-node:hover { background: var(--select-option-hover); }
 .tree-node.active { background: var(--accent-copper-bg); color: var(--text-primary); }
-.tree-node.creating { background: var(--accent-copper-bg); }
+.tree-node.creating {
+  display: block;
+  background: var(--accent-copper-bg);
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.create-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
 .caret { width: 12px; text-align: center; color: var(--text-tertiary); }
 .node-icon { width: 12px; height: 12px; border-radius: 3px; background: #8ea4c0; }
 .node-icon.folder { background: #bb955f; }
@@ -1239,7 +1521,33 @@ onBeforeUnmount(() => {
   padding: 4px 6px;
   font-size: 12px;
 }
-.node-actions { margin-left: auto; display: inline-flex; gap: 4px; }
+.tree-inline-input.has-error {
+  border-color: #d85b54;
+  background: #fff4f3;
+}
+.tree-inline-error {
+  margin-left: 20px;
+  margin-top: 6px;
+  color: #c84a45;
+  font-size: 12px;
+  line-height: 1.35;
+  max-width: 240px;
+}
+.inline-text-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  min-width: 44px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.inline-text-btn:hover {
+  border-color: var(--accent-copper);
+  color: var(--text-primary);
+}
 .node-action-btn {
   border: 1px solid var(--border);
   background: var(--bg-subtle);
@@ -1247,7 +1555,7 @@ onBeforeUnmount(() => {
   border-radius: 5px;
   min-width: 24px;
   height: 22px;
-  font-size: 0;
+  font-size: 12px;
   cursor: pointer;
 }
 .node-action-btn.danger { border-color: #c67a64; color: #a44f36; }

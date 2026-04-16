@@ -34,7 +34,7 @@ async def execute_task_run(session: AsyncSession, run_id: int) -> None:
     流程：
     1. 查询 TaskRun → TaskInstance → ConnectorApp → ShopAccount
     2. 将 TaskRun 状态更新为 running
-    3. 根据 ConnectorApp.adapter_key 获取 DrissionPage 适配器
+    3. 根据 ConnectorApp.adapter_key 获取浏览器自动化适配器
     4. 调用适配器的 execute() 方法
     5. 根据结果更新 TaskRun 状态为 success / failed
     6. 记录步骤日志到 task_run_log

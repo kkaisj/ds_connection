@@ -9,9 +9,10 @@ import asyncio
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote_plus
 
 from infrastructure.connectors.base.execution_context import ExecutionContext
-from infrastructure.connectors.collect_instructions.base_collect_instruction import (
+from infrastructure.connectors.collect_data.base_collect_instruction import (
     BaseCollectInstruction,
 )
 
@@ -35,7 +36,7 @@ class DemoBaiduSearchCollectInstruction(BaseCollectInstruction):
         if real_browser:
             ok, msg = await self._run_real_browser(context, keyword)
             if not ok:
-                raise RuntimeError(f"DRISSIONPAGE_NOT_READY: {msg}")
+                raise RuntimeError(f"PLAYWRIGHT_NOT_READY: {msg}")
 
         # 模拟步骤：保证未启用真实浏览器时也可跑通完整链路。
         await asyncio.sleep(0.2)
@@ -88,14 +89,8 @@ class DemoBaiduSearchCollectInstruction(BaseCollectInstruction):
             return False, f"环境隔离浏览器初始化失败: {e}"
 
         try:
-            box = page.ele("css:#kw")
-            if not box:
-                return False, "未找到百度搜索输入框 #kw"
-            box.input(keyword)
-            btn = page.ele("css:#su")
-            if not btn:
-                return False, "未找到百度搜索按钮 #su"
-            btn.click()
+            # 无头环境下百度输入框可见性波动较大，直接访问搜索结果页更稳定。
+            page.get(f"https://www.baidu.com/s?wd={quote_plus(keyword)}")
             await asyncio.sleep(1.0)
             return True, "ok"
         except Exception as e:  # pragma: no cover

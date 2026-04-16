@@ -1,6 +1,6 @@
 """
 适配器基类
-所有 DrissionPage 浏览器自动化适配器必须继承此基类。
+所有浏览器自动化适配器必须继承此基类。
 定义统一的生命周期方法：初始化 → 登录 → 采集 → 清理。
 """
 
@@ -27,7 +27,7 @@ class AdapterResult:
 
 class BaseAdapter(ABC):
     """
-    DrissionPage 浏览器自动化适配器基类。
+    浏览器自动化适配器基类。
 
     子类需实现：
     - execute(): 核心采集逻辑，接收账号凭据和任务参数，返回 AdapterResult

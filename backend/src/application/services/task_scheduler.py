@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from application.services.task_executor import execute_task_run
-from config.database import async_session_factory, engine
+from config.database import async_session_factory, dispose_database_engine
 from infrastructure.persistence.models.models import TaskInstance, TaskRun
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ class TaskSchedulerService:
         if self._scheduler.running:
             self._scheduler.shutdown(wait=False)
         # 关闭连接池，避免事件循环结束后 aiomysql 析构告警
-        await engine.dispose()
+        await dispose_database_engine()
         logger.info("任务调度服务已关闭")
 
     async def refresh_jobs(self) -> None:

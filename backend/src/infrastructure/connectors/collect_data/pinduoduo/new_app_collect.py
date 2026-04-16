@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from infrastructure.connectors.base.execution_context import ExecutionContext
-from infrastructure.connectors.collect_instructions.base_collect_instruction import BaseCollectInstruction
+from infrastructure.connectors.collect_data.base_collect_instruction import BaseCollectInstruction
 
 
 class NewAppCollectInstruction(BaseCollectInstruction):

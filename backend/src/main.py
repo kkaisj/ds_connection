@@ -3,9 +3,12 @@ DC 数据连接器 - FastAPI 应用入口
 注册所有路由模块和中间件。
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from config.database import dispose_database_engine
 from config.settings import settings
 from presentation.http.routers import (
     accounts,
@@ -20,8 +23,22 @@ from presentation.http.routers import (
 )
 
 
+@asynccontextmanager
+async def app_lifespan(_: FastAPI):
+    """
+    应用生命周期钩子。
+    用途：
+    1. 在 shutdown/reload 阶段显式释放数据库连接池；
+    2. 避免 aiomysql 连接在事件循环关闭后析构触发告警。
+    """
+    try:
+        yield
+    finally:
+        await dispose_database_engine()
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, debug=settings.debug)
+    app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=app_lifespan)
 
     # CORS 中间件：允许前端开发服务器跨域请求
     app.add_middleware(

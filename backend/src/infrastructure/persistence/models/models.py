@@ -50,7 +50,7 @@ class Platform(Base):
 class ConnectorApp(Base):
     """
     连接应用定义表，每个应用绑定一个平台。
-    adapter_key 标识对应的 DrissionPage 浏览器自动化适配器，
+    adapter_key 标识对应的浏览器自动化适配器，
     与 infrastructure/connectors/<platform>/ 目录下的适配器模块一一对应。
     """
     __tablename__ = "connector_app"
@@ -59,7 +59,7 @@ class ConnectorApp(Base):
     platform_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("platform.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     adapter_key: Mapped[str | None] = mapped_column(
-        String(128), nullable=True, comment="DrissionPage 适配器标识，如 taobao.order_sync"
+        String(128), nullable=True, comment="浏览器自动化适配器标识，如 taobao.order_sync"
     )
     version: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(
@@ -83,7 +83,7 @@ class ConnectorApp(Base):
 class AdapterRelease(Base):
     """
     适配器发布表。
-    用于管理 DrissionPage 适配器从开发到发版的状态流转，
+    用于管理浏览器自动化适配器从开发到发版的状态流转，
     并作为“应用上架”“任务执行”的统一发布依据。
     """
     __tablename__ = "adapter_release"

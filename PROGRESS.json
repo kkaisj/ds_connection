@@ -1,7 +1,8 @@
 {
     "project":  "DC 数据连接器",
-    "last_updated":  "2026-04-12",
-    "latest_note":  "统一工作台目录树交互升级为 VSCode 风格：支持节点右键菜单、行内新建文件/目录、行内重命名与悬浮快捷操作；删除保留占用检查与确认流程。",
+    "last_updated":  "2026-04-13",
+    "latest_note_playwright":  "最小MVP闭环验证切换到 Playwright，已修复 asyncio 与 Sync API 冲突，百度 demo 在 real_browser=true 下验证通过。",
+    "latest_note":  "目录树进一步优化为增量更新：创建/重命名/删除不再依赖全量刷新，展开状态按路径最小迁移（展开保持展开、未展开保持不变），并降低操作卡顿。",
     "completed":  [
                       {
                           "step":  1,

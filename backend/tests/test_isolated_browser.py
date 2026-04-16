@@ -5,7 +5,10 @@
 
 import sys
 import tempfile
+import asyncio
 from pathlib import Path
+
+import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -54,3 +57,30 @@ def test_new_session_opens_default_entry_page_when_start_url_missing() -> None:
         manager = IsolatedBrowserManager(base_dir=Path(tmp), page_factory=lambda *_: _FakePage())
         page = manager.get_page(company="c1", platform="jd", account="a1")
         assert str(page.url).startswith("file:///") or page.url == "about:blank"
+
+
+@pytest.mark.asyncio
+async def test_get_page_in_asyncio_thread_uses_threadsafe_factory() -> None:
+    """
+    回归测试：
+    在 asyncio 事件循环线程中请求页面时，页面工厂不能直接在当前线程执行。
+    否则 Playwright Sync API 会报错 “inside the asyncio loop”。
+    """
+
+    class _ThreadCheckPage(_FakePage):
+        pass
+
+    def _factory(_: Path, __: str) -> _ThreadCheckPage:
+        has_loop = True
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            has_loop = False
+        if has_loop:
+            raise RuntimeError("factory called in asyncio thread")
+        return _ThreadCheckPage()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = IsolatedBrowserManager(base_dir=Path(tmp), page_factory=_factory)
+        page = manager.get_page(company="c1", platform="jd", account="a_async")
+        assert isinstance(page, _ThreadCheckPage)

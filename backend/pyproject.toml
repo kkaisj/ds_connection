@@ -13,7 +13,7 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "alembic>=1.14.0",
     "cryptography>=44.0.0",
-    "drissionpage>=4.1.1.2",
+    "playwright>=1.54.0",
 ]
 
 [project.optional-dependencies]

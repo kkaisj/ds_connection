@@ -217,7 +217,7 @@ async def delete_task(task_id: int, session: AsyncSession = Depends(get_db)):
 async def trigger_run(task_id: int, session: AsyncSession = Depends(get_db)):
     """
     手动触发任务执行。
-    创建运行记录后，在后台异步调用 DrissionPage 适配器执行采集。
+    创建运行记录后，在后台异步调用浏览器自动化适配器执行采集。
     """
     task = await session.get(TaskInstance, task_id)
     if not task or task.is_deleted:

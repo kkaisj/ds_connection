@@ -137,16 +137,16 @@ def _adapter_key_from_special_file(relative_path: str) -> str | None:
     if len(parts) < 3:
         return None
     group = parts[0]
-    if group not in {"login_instructions", "collect_instructions", "schema", "tests"}:
+    if group not in {"login", "collect_data", "schema", "tests"}:
         return None
     name = parts[-1]
     module_dir = "/".join(parts[1:-1]).replace("/", ".")
     if not module_dir:
         return None
 
-    if group == "login_instructions" and name.endswith("_login.py"):
+    if group == "login" and name.endswith("_login.py"):
         return f"{module_dir}.{name[:-9]}"
-    if group == "collect_instructions" and name.endswith("_collect.py"):
+    if group == "collect_data" and name.endswith("_collect.py"):
         return f"{module_dir}.{name[:-11]}"
     if group == "schema" and name.endswith("_schema.py"):
         return f"{module_dir}.{name[:-10]}"
@@ -199,12 +199,34 @@ def _list_dev_files(root: Path) -> list[Path]:
     return files
 
 
+def _list_dev_dirs(root: Path) -> list[Path]:
+    """
+    扫描可展示的开发目录（包含空目录）。
+    规则：
+    1. 跳过 __pycache__ 与 base 目录。
+    2. 不返回 connectors 根目录本身。
+    """
+    dirs: list[Path] = []
+    for item in root.rglob("*"):
+        if not item.is_dir():
+            continue
+        parts = set(item.parts)
+        if "__pycache__" in parts:
+            continue
+        if "base" in parts:
+            continue
+        if item.resolve() == root.resolve():
+            continue
+        dirs.append(item)
+    return dirs
+
+
 def _infer_kind(path: Path, connectors_root: Path) -> str:
     """根据路径推断代码类型。"""
     rel = path.relative_to(connectors_root).as_posix()
-    if rel.startswith("login_instructions/"):
+    if rel.startswith("login/"):
         return "login_instruction"
-    if rel.startswith("collect_instructions/"):
+    if rel.startswith("collect_data/"):
         return "collect_instruction"
     return "adapter"
 
@@ -217,7 +239,7 @@ def _file_to_adapter_key(path: Path, connectors_root: Path) -> str | None:
     rel = path.relative_to(connectors_root)
     if len(rel.parts) < 2:
         return None
-    if rel.parts[0] in ("login_instructions", "collect_instructions", "base"):
+    if rel.parts[0] in ("login", "collect_data", "base"):
         return None
     return f"{rel.parts[0]}.{path.stem}"
 
@@ -258,8 +280,8 @@ def _build_scaffold_content(platform_code: str, app_slug: str, target_dir: str |
 
     scaffold_dir = (target_dir or platform_code).strip().replace("\\", "/").strip("/")
     module_dir = scaffold_dir.replace("/", ".")
-    login_path = f"login_instructions/{scaffold_dir}/{app_slug}_login.py"
-    collect_path = f"collect_instructions/{scaffold_dir}/{app_slug}_collect.py"
+    login_path = f"login/{scaffold_dir}/{app_slug}_login.py"
+    collect_path = f"collect_data/{scaffold_dir}/{app_slug}_collect.py"
     adapter_path = f"{scaffold_dir}/{app_slug}.py"
 
     login_code = f'''"""
@@ -274,7 +296,7 @@ from __future__ import annotations
 from typing import Any
 
 from infrastructure.connectors.base.execution_context import ExecutionContext
-from infrastructure.connectors.login_instructions.base_login_instruction import BaseLoginInstruction
+from infrastructure.connectors.login.base_login_instruction import BaseLoginInstruction
 
 
 class {login_cls}(BaseLoginInstruction):
@@ -310,7 +332,7 @@ from __future__ import annotations
 from typing import Any
 
 from infrastructure.connectors.base.execution_context import ExecutionContext
-from infrastructure.connectors.collect_instructions.base_collect_instruction import BaseCollectInstruction
+from infrastructure.connectors.collect_data.base_collect_instruction import BaseCollectInstruction
 
 
 class {collect_cls}(BaseCollectInstruction):
@@ -347,8 +369,8 @@ from typing import Any
 
 from infrastructure.connectors.base.execution_context import ExecutionContext
 from infrastructure.connectors.base.web_data_adapter import BaseWebDataAdapter
-from infrastructure.connectors.collect_instructions.{module_dir}.{app_slug}_collect import {collect_cls}
-from infrastructure.connectors.login_instructions.{module_dir}.{app_slug}_login import {login_cls}
+from infrastructure.connectors.collect_data.{module_dir}.{app_slug}_collect import {collect_cls}
+from infrastructure.connectors.login.{module_dir}.{app_slug}_login import {login_cls}
 
 
 class {adapter_cls}(BaseWebDataAdapter):
@@ -451,6 +473,7 @@ async def list_dev_instructions(
     """
     root = _connectors_root()
     files = _list_dev_files(root)
+    dirs = _list_dev_dirs(root)
 
     release_rows = await session.execute(
         select(AdapterRelease).where(AdapterRelease.is_deleted.is_(False))
@@ -468,6 +491,26 @@ async def list_dev_instructions(
             release_map[key] = row
 
     items: list[dict[str, Any]] = []
+    for dir_path in dirs:
+        rel_path = dir_path.relative_to(root).as_posix()
+        name = dir_path.name
+        updated_at = datetime.fromtimestamp(dir_path.stat().st_mtime).isoformat(timespec="seconds")
+        item = {
+            "name": name,
+            "kind": "folder",
+            "status": "目录",
+            "updated_at": updated_at,
+            "relative_path": rel_path,
+            "adapter_key": None,
+            "is_dir": True,
+        }
+        if keyword:
+            kw = keyword.strip().lower()
+            text = f"{name} {rel_path}".lower()
+            if kw not in text:
+                continue
+        items.append(item)
+
     for file in files:
         rel_path = file.relative_to(root).as_posix()
         name = file.stem
@@ -490,6 +533,7 @@ async def list_dev_instructions(
             "updated_at": updated_at,
             "relative_path": rel_path,
             "adapter_key": adapter_key,
+            "is_dir": False,
         }
         if keyword:
             kw = keyword.strip().lower()

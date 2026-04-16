@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from infrastructure.connectors.base.execution_context import ExecutionContext
-from infrastructure.connectors.login_instructions.base_login_instruction import BaseLoginInstruction
+from infrastructure.connectors.login.base_login_instruction import BaseLoginInstruction
 
 
 class NewAppLoginInstruction(BaseLoginInstruction):
